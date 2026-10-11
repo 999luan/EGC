@@ -25,12 +25,6 @@ function readHookStdin(onRead, optionsOrStream = process.stdin) {
     }
   }
 
-  if (typeof onRead !== 'function') {
-    return new Promise(resolve => {
-      readHookStdin(resolve, { stream, maxBytes });
-    });
-  }
-
   const chunks = [];
   let kept = 0;
   let truncated = false;
@@ -39,7 +33,16 @@ function readHookStdin(onRead, optionsOrStream = process.stdin) {
   const finish = () => {
     if (done) return;
     done = true;
-    onRead({ raw: Buffer.concat(chunks).toString('utf8'), truncated });
+    if (typeof onRead === 'function') {
+      try {
+        const res = onRead({ raw: Buffer.concat(chunks).toString('utf8'), truncated });
+        if (res && typeof res.catch === 'function') {
+          res.catch(() => {});
+        }
+      } catch {
+        // fail-safe
+      }
+    }
   };
 
   stream.on('data', chunk => {
@@ -60,11 +63,18 @@ function readHookStdin(onRead, optionsOrStream = process.stdin) {
   });
 }
 
+function readHookStdinAsync(optionsOrStream = process.stdin) {
+  return new Promise(resolve => {
+    readHookStdin(resolve, optionsOrStream);
+  });
+}
+
 const readHookInput = readHookStdin;
 
 module.exports = {
   MAX_HOOK_INPUT_BYTES,
   MAX_STDIN,
   readHookStdin,
+  readHookStdinAsync,
   readHookInput,
 };

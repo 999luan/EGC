@@ -18,10 +18,9 @@
 'use strict';
 
 const { computeCrushedCommand } = require('./pre-bash-crusher-rewrite');
-const { readHookStdin, MAX_HOOK_INPUT_BYTES } = require('../lib/hook-stdin');
+const { readHookStdin } = require('../lib/hook-stdin');
 
 const SHELL_TOOL_RE = /^(bash|git_bash|experimental_bash|experimental_git_bash)$/i;
-const MAX_STDIN_BYTES = MAX_HOOK_INPUT_BYTES;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

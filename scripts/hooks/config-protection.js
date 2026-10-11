@@ -14,7 +14,7 @@
 'use strict';
 
 const path = require('node:path');
-const { readHookStdin, MAX_HOOK_INPUT_BYTES } = require('../lib/hook-stdin');
+const { readHookStdin, MAX_HOOK_INPUT_BYTES, MAX_STDIN } = require('../lib/hook-stdin');
 
 const PROTECTED_FILES = new Set([
   // ESLint (legacy + v9 flat config, JS/TS/MJS/CJS)

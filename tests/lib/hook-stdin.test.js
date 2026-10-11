@@ -9,6 +9,7 @@ const assert = require('assert');
 const { EventEmitter } = require('events');
 const {
   readHookStdin,
+  readHookStdinAsync,
   readHookInput,
   MAX_HOOK_INPUT_BYTES,
   MAX_STDIN,
@@ -54,7 +55,7 @@ async function runTests() {
   // Empty input
   record(await test('empty input produces empty raw string without truncation', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, stream);
+    const resultPromise = readHookStdinAsync(stream);
     stream.emit('end');
     const result = await resultPromise;
     assert.deepStrictEqual(result, { raw: '', truncated: false });
@@ -73,7 +74,7 @@ async function runTests() {
   // Under limit
   record(await test('input under limit is read completely without truncation', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, stream);
+    const resultPromise = readHookStdinAsync(stream);
     stream.emit('data', Buffer.from('{"hello": "world"}'));
     stream.emit('end');
     const result = await resultPromise;
@@ -83,7 +84,7 @@ async function runTests() {
   // Exact limit
   record(await test('input of exactly 1 MiB is read whole without truncation', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, stream);
+    const resultPromise = readHookStdinAsync(stream);
     const chunk1 = Buffer.alloc(MAX_HOOK_INPUT_BYTES - 4, 0x61); // 'a'
     const chunk2 = Buffer.from('test');
     stream.emit('data', chunk1);
@@ -98,7 +99,7 @@ async function runTests() {
   // Limit exceeded (truncation)
   record(await test('input exceeding limit is capped at 1 MiB and marked truncated', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, stream);
+    const resultPromise = readHookStdinAsync(stream);
     const chunk1 = Buffer.alloc(MAX_HOOK_INPUT_BYTES, 0x61);
     const chunk2 = Buffer.from('overflow');
     stream.emit('data', chunk1);
@@ -112,7 +113,7 @@ async function runTests() {
   // Multibyte characters boundary truncation
   record(await test('multibyte characters past limit are capped by bytes and marked truncated', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, stream);
+    const resultPromise = readHookStdinAsync(stream);
     stream.emit('data', Buffer.alloc(MAX_HOOK_INPUT_BYTES - 1, 0x61));
     stream.emit('data', 'é'); // 2 bytes in utf8
     stream.emit('end');
@@ -125,7 +126,7 @@ async function runTests() {
   // Stream error marks truncated and does not throw uncaught error
   record(await test('stream error finishes safely with truncated=true', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, stream);
+    const resultPromise = readHookStdinAsync(stream);
     stream.emit('data', Buffer.from('{"partial": true'));
     stream.emit('error', new Error('premature close'));
     const result = await resultPromise;
@@ -135,7 +136,7 @@ async function runTests() {
   // Custom maxBytes option
   record(await test('custom maxBytes option limits reading to specified byte limit', async () => {
     const stream = new EventEmitter();
-    const resultPromise = readHookStdin(undefined, { stream, maxBytes: 10 });
+    const resultPromise = readHookStdinAsync({ stream, maxBytes: 10 });
     stream.emit('data', Buffer.from('0123456789extra'));
     stream.emit('end');
     const result = await resultPromise;

@@ -382,7 +382,7 @@ function guardianFailureReason(failure, timeoutMs) {
   }
 }
 
-const { MAX_HOOK_INPUT_BYTES, readHookInput, readHookStdin } = require('./hook-stdin');
+const { MAX_HOOK_INPUT_BYTES, readHookInput } = require('./hook-stdin');
 
 // The parsed JSON, or null on any failure, for the callers that still fail
 // open: the prompt router and the intuition hook, the memory miner and
