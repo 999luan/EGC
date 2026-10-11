@@ -2,6 +2,7 @@ import { simpleGit, SimpleGit } from 'simple-git';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { SyncBackend, SyncConfig, SyncStatus } from './SyncBackend';
 
 const SYNC_STATE_DIR = path.join(os.homedir(), '.egc', 'team-sync');
@@ -190,7 +191,7 @@ export class GitBackend extends SyncBackend {
     if (!fs.existsSync(parent)) {
       fs.mkdirSync(parent, { recursive: true });
     }
-    const tmpDest = path.join(parent, `.tmp-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const tmpDest = path.join(parent, `.tmp-sync-${Date.now()}-${randomBytes(6).toString('hex')}`);
     try {
       fs.cpSync(src, tmpDest, { recursive: true });
     } catch (error) {
@@ -205,7 +206,7 @@ export class GitBackend extends SyncBackend {
       return;
     }
 
-    const backupDest = path.join(parent, `.tmp-old-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const backupDest = path.join(parent, `.tmp-old-${Date.now()}-${randomBytes(6).toString('hex')}`);
     try {
       fs.renameSync(dest, backupDest);
     } catch (error) {
