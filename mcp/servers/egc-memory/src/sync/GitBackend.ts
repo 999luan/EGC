@@ -190,6 +190,12 @@ export class GitBackend extends SyncBackend {
     const parent = path.dirname(dest);
     if (!fs.existsSync(parent)) {
       fs.mkdirSync(parent, { recursive: true });
+    } else {
+      for (const entry of fs.readdirSync(parent)) {
+        if (entry.startsWith('.tmp-sync-') || entry.startsWith('.tmp-old-')) {
+          fs.rmSync(path.join(parent, entry), { recursive: true, force: true });
+        }
+      }
     }
     const tmpDest = path.join(parent, `.tmp-sync-${Date.now()}-${randomBytes(6).toString('hex')}`);
     try {
@@ -202,7 +208,14 @@ export class GitBackend extends SyncBackend {
     }
 
     if (!fs.existsSync(dest)) {
-      fs.renameSync(tmpDest, dest);
+      try {
+        fs.renameSync(tmpDest, dest);
+      } catch (error) {
+        if (fs.existsSync(tmpDest)) {
+          fs.rmSync(tmpDest, { recursive: true, force: true });
+        }
+        throw error;
+      }
       return;
     }
 
@@ -228,6 +241,10 @@ export class GitBackend extends SyncBackend {
       throw error;
     }
 
-    fs.rmSync(backupDest, { recursive: true, force: true });
+    try {
+      fs.rmSync(backupDest, { recursive: true, force: true });
+    } catch {
+      // non-fatal if backup deletion throws after swap succeeds
+    }
   }
 }

@@ -40,13 +40,13 @@ async function runTests() {
   console.log('\n=== Testing GitBackend team sync ===\n');
 
   let GitBackend;
-  try {
-    const mod = await import(pathToFileURL(path.join(BUILD, 'sync', 'GitBackend.js')).href);
-    GitBackend = mod.GitBackend;
-  } catch (error) {
-    console.error(`[SKIP] Could not import GitBackend: ${error.message}. Run 'npm run build' in mcp/servers/egc-memory first.`);
+  const buildFile = path.join(BUILD, 'sync', 'GitBackend.js');
+  if (!fs.existsSync(buildFile)) {
+    console.error(`[SKIP] GitBackend build not found at ${buildFile}. Run 'npm run build' in mcp/servers/egc-memory first.`);
     process.exit(0);
   }
+  const mod = await import(pathToFileURL(buildFile).href);
+  GitBackend = mod.GitBackend;
 
   let passed = 0;
   let failed = 0;
@@ -163,6 +163,30 @@ async function runTests() {
       const backend = new GitBackend(customRepo);
       assert.ok(fs.existsSync(customRepo), 'constructor must create the repo directory');
       assert.ok(backend instanceof GitBackend);
+    })) passed++; else failed++;
+
+    // 6. mirrorCopy sweeps stale temporary siblings (.tmp-sync-* and .tmp-old-*) before copying
+    if (await test('mirrorCopy sweeps stale temporary siblings before copying', () => {
+      const repoDir = path.join(tempBase, 'repo-sweep');
+      const backend = new GitBackend(repoDir);
+      const src = path.join(tempBase, 'src-sweep');
+      const dest = path.join(tempBase, 'dest-sweep');
+      const staleTemp1 = path.join(tempBase, '.tmp-sync-x');
+      const staleTemp2 = path.join(tempBase, '.tmp-old-x');
+
+      fs.mkdirSync(staleTemp1, { recursive: true });
+      fs.writeFileSync(path.join(staleTemp1, 'orphan.txt'), 'stale sync data');
+      fs.mkdirSync(staleTemp2, { recursive: true });
+      fs.writeFileSync(path.join(staleTemp2, 'orphan.txt'), 'stale old data');
+
+      fs.mkdirSync(src, { recursive: true });
+      fs.writeFileSync(path.join(src, 'data.txt'), 'live data');
+
+      backend.mirrorCopy(src, dest);
+
+      assert.strictEqual(fs.existsSync(staleTemp1), false, 'stale .tmp-sync-x must be swept');
+      assert.strictEqual(fs.existsSync(staleTemp2), false, 'stale .tmp-old-x must be swept');
+      assert.strictEqual(fs.readFileSync(path.join(dest, 'data.txt'), 'utf8'), 'live data');
     })) passed++; else failed++;
   } finally {
     fs.rmSync(tempBase, { recursive: true, force: true });
