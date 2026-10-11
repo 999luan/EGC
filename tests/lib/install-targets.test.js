@@ -2423,6 +2423,11 @@ function runTests() {
       'the real home follows %APPDATA%'
     );
     assert.strictEqual(
+      adapter.resolveRoot({ homeDir: os.homedir().toUpperCase(), platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
+      path.join('R:', 'Roaming', 'Zed'),
+      'the real home compared case-insensitively follows %APPDATA%'
+    );
+    assert.strictEqual(
       adapter.resolveRoot({ homeDir: '/sandbox/home', platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
       path.join('/sandbox/home', 'AppData', 'Roaming', 'Zed'),
       'a home other than the real one never writes into the real %APPDATA%'
@@ -2474,11 +2479,126 @@ function runTests() {
     );
     assert.ok(!plan.operations.some(op => op.destinationPath.startsWith(path.join(expectedRoot, 'skills'))), 'nothing is planned under <targetRoot>/skills');
     const adapter = getInstallTargetAdapter('zed');
+    const expectedManagedRoots = process.platform === 'win32'
+      ? [expectedRoot, path.join(homeDir, '.agents'), path.join(homeDir, '.config', 'zed')]
+      : [expectedRoot, path.join(homeDir, '.agents')];
     assert.deepStrictEqual(
       adapter.resolveManagedRoots({ homeDir }, adapter),
-      [expectedRoot, path.join(homeDir, '.agents')],
-      'the shared ~/.agents root is managed, so retirement and uninstall reach it and see the siblings that share it'
+      expectedManagedRoots,
+      'the shared ~/.agents root is managed, and on Windows ~/.config/zed is kept as a legacy managed root'
     );
+  }));
+
+  tally(test('zed adapter on Windows resolves legacy install state under ~/.config/zed (#1843)', () => {
+    const fs = require('fs');
+    const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+    const adapter = getInstallTargetAdapter('zed');
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'egc-zed-legacy-state-'));
+    try {
+      const legacyRoot = path.join(homeDir, '.config', 'zed');
+      const legacyStatePath = path.join(legacyRoot, 'egc', 'install-state.json');
+
+      assert.deepStrictEqual(
+        adapter.resolveLegacyInstallStatePaths({ homeDir, platform: 'win32' }, adapter),
+        [],
+        'no legacy state when ~/.config/zed/egc/install-state.json does not exist'
+      );
+      assert.deepStrictEqual(
+        adapter.resolveLegacyInstallStatePaths({ homeDir, platform: 'linux' }, adapter),
+        [],
+        'no legacy state on non-Windows'
+      );
+
+      fs.mkdirSync(path.join(legacyRoot, 'egc'), { recursive: true });
+      writeInstallState(legacyStatePath, createInstallState({
+        request: { profile: 'developer', modules: [], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: [], skippedModules: [] },
+        source: { repoVersion: require('../../package.json').version, repoCommit: 'abc123', manifestVersion: 1 },
+        adapter: { id: 'zed-home', target: 'zed', kind: 'home' },
+        targetRoot: legacyRoot,
+        installStatePath: legacyStatePath,
+        operations: [],
+      }));
+
+      assert.deepStrictEqual(
+        adapter.resolveLegacyInstallStatePaths({ homeDir, platform: 'win32' }, adapter),
+        [legacyStatePath],
+        'finds legacy state file on Windows when it exists'
+      );
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  }));
+
+  tally(test('a zed install on Windows retires what was copied under ~/.config/zed and cleans the legacy state (#1843)', () => {
+    const fs = require('fs');
+    const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+    const { applyInstallPlan } = require('../../scripts/lib/install/apply');
+    const repoRoot = path.join(__dirname, '..', '..');
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'egc-zed-upgrade-'));
+    try {
+      const source = 'skills/ai/agent-eval/SKILL.md';
+      const legacyRoot = path.join(homeDir, '.config', 'zed');
+      const legacyDestination = path.join(legacyRoot, 'skills', 'agent-eval', 'SKILL.md');
+      const legacyStatePath = path.join(legacyRoot, 'egc', 'install-state.json');
+      fs.mkdirSync(path.dirname(legacyDestination), { recursive: true });
+      fs.mkdirSync(path.dirname(legacyStatePath), { recursive: true });
+      fs.copyFileSync(path.join(repoRoot, source), legacyDestination);
+
+      const stateFields = {
+        request: { profile: 'developer', modules: [], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['skills-extended'], skippedModules: [] },
+        source: { repoVersion: require('../../package.json').version, repoCommit: 'abc123', manifestVersion: 1 },
+      };
+      writeInstallState(legacyStatePath, createInstallState({
+        ...stateFields,
+        adapter: { id: 'zed-home', target: 'zed', kind: 'home' },
+        targetRoot: legacyRoot,
+        installStatePath: legacyStatePath,
+        operations: [{
+          kind: 'copy-file',
+          moduleId: 'skills-extended',
+          sourceRelativePath: source,
+          destinationPath: legacyDestination,
+          strategy: 'preserve-relative-path',
+          ownership: 'managed',
+          scaffoldOnly: false,
+        }],
+      }));
+
+      const modules = [{ id: 'skills-extended', paths: [source] }];
+      const plan = planInstallTargetScaffold({
+        target: 'zed',
+        repoRoot,
+        homeDir,
+        platform: 'win32',
+        modules,
+      });
+
+      assert.strictEqual(plan.targetRoot, path.join(homeDir, 'AppData', 'Roaming', 'Zed'));
+      assert.ok(plan.retirements.some(entry => entry.destinationPath === legacyDestination), 'the ~/.config/zed copy is offered for retirement');
+
+      const operations = plan.operations.map(operation => ({
+        ...operation,
+        kind: 'copy-file',
+        scaffoldOnly: false,
+        sourcePath: path.join(repoRoot, operation.sourceRelativePath),
+      }));
+      const statePreview = createInstallState({
+        ...stateFields,
+        adapter: plan.adapter,
+        targetRoot: plan.targetRoot,
+        installStatePath: plan.installStatePath,
+        operations,
+      });
+
+      applyInstallPlan({ ...plan, operations, statePreview }, { homeDir });
+      assert.ok(fs.existsSync(plan.installStatePath), 'the state now lives under AppData/Roaming/Zed');
+      assert.ok(!fs.existsSync(legacyDestination), 'the legacy file under ~/.config/zed is retired');
+      assert.ok(!fs.existsSync(legacyStatePath), 'the legacy state is removed');
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
   }));
 
   tally(test('zed adapter scaffold planning forces config root per platform (#1843)', () => {

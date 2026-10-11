@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -24,7 +25,9 @@ function resolveZedConfigRoot(input = {}, options = {}) {
     return path.join(home, '.config', 'zed');
   }
   const appData = typeof env.APPDATA === 'string' && env.APPDATA.length > 0 ? env.APPDATA : '';
-  const isOwnHome = path.resolve(home) === path.resolve(os.homedir());
+  const resolvedHome = path.resolve(home);
+  const ownHome = path.resolve(os.homedir());
+  const isOwnHome = resolvedHome.toLowerCase() === ownHome.toLowerCase();
   return path.join(appData && isOwnHome ? appData : path.join(home, 'AppData', 'Roaming'), 'Zed');
 }
 
@@ -39,7 +42,26 @@ const baseAdapter = createInstallTargetAdapter({
     return resolveZedConfigRoot(input);
   },
   resolveManagedRoots(input, adapter) {
-    return [adapter.resolveRoot(input), resolveSharedAgentsRoot(input)];
+    const home = typeof input === 'string' ? input : (input?.homeDir || os.homedir());
+    const platform = (typeof input === 'object' && input?.platform) || process.platform;
+    const roots = [adapter.resolveRoot(input), resolveSharedAgentsRoot(input)];
+    if (platform === 'win32') {
+      const legacyRoot = path.join(home, '.config', 'zed');
+      if (!roots.includes(legacyRoot)) {
+        roots.push(legacyRoot);
+      }
+    }
+    return roots;
+  },
+  resolveLegacyInstallStatePaths(input, adapter) {
+    const home = typeof input === 'string' ? input : (input?.homeDir || os.homedir());
+    const platform = (typeof input === 'object' && input?.platform) || process.platform;
+    if (platform !== 'win32') return [];
+    const legacyStatePath = path.join(home, '.config', 'zed', 'egc', 'install-state.json');
+    if (legacyStatePath === adapter.getInstallStatePath(input) || !fs.existsSync(legacyStatePath)) {
+      return [];
+    }
+    return [legacyStatePath];
   },
   planOperations(input, adapter) {
     return createFlatSkillPlanOperations(input, adapter, {
