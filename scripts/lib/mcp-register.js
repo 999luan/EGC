@@ -325,13 +325,114 @@ function tomlHasActiveServer(content, serverName) {
   if (TOML) {
     try {
       const parsed = TOML.parse(content);
-      const servers = Array.isArray(parsed.mcp_servers) ? parsed.mcp_servers : [];
-      return servers.some(server => server && server.name === serverName);
+      if (Array.isArray(parsed.mcp_servers)) {
+        return parsed.mcp_servers.some(server => server && server.name === serverName);
+      }
+      if (parsed.mcp_servers && typeof parsed.mcp_servers === 'object') {
+        return Boolean(parsed.mcp_servers[serverName]);
+      }
+      return false;
     } catch {
       // Fall through to the substring check below.
     }
   }
-  return content.includes(`"${serverName}"`) || content.includes(`'${serverName}'`);
+  return content.includes(`"${serverName}"`) || content.includes(`'${serverName}'`) || content.includes(`[mcp_servers.${serverName}]`);
+}
+
+function tomlHasTableServer(content, serverName) {
+  if (TOML) {
+    try {
+      const parsed = TOML.parse(content);
+      if (parsed.mcp_servers && typeof parsed.mcp_servers === 'object' && !Array.isArray(parsed.mcp_servers)) {
+        return Boolean(parsed.mcp_servers[serverName]);
+      }
+      return false;
+    } catch {
+      // Fall through to substring check below.
+    }
+  }
+  return content.includes(`[mcp_servers.${serverName}]`);
+}
+
+function removeLegacyTomlServer(content, serverName) {
+  const lines = content.split('\n');
+  const result = [];
+  let inBlock = false;
+  let blockLines = [];
+  let blockHasServer = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isMcpServersHeader = /^\s*\[\[\s*mcp_servers\s*\]\]/.test(line);
+    const isTableHeader = /^\s*\[\[?[^\]]+\]\]?/.test(line);
+
+    if (isMcpServersHeader) {
+      if (inBlock) {
+        if (!blockHasServer) {
+          result.push(...blockLines);
+        }
+      }
+      inBlock = true;
+      blockLines = [line];
+      blockHasServer = false;
+    } else if (inBlock) {
+      if (isTableHeader && !isMcpServersHeader) {
+        if (!blockHasServer) {
+          result.push(...blockLines);
+        }
+        inBlock = false;
+        result.push(line);
+      } else {
+        blockLines.push(line);
+        const withoutComment = line.replace(/#.*$/, '');
+        const nameMatch = withoutComment.match(/^\s*name\s*=\s*["']([^"']+)["']/);
+        if (nameMatch && nameMatch[1] === serverName) {
+          blockHasServer = true;
+        }
+      }
+    } else {
+      result.push(line);
+    }
+  }
+  if (inBlock && !blockHasServer) {
+    result.push(...blockLines);
+  }
+  return result.join('\n');
+}
+
+function findRemainingLegacyMcpServers(content) {
+  const names = [];
+  const lines = content.split('\n');
+  let inBlock = false;
+  let currentName = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isMcpServersHeader = /^\s*\[\[\s*mcp_servers\s*\]\]/.test(line);
+    const isTableHeader = /^\s*\[\[?[^\]]+\]\]?/.test(line);
+
+    if (isMcpServersHeader) {
+      if (inBlock && currentName) names.push(currentName);
+      inBlock = true;
+      currentName = 'unnamed';
+    } else if (inBlock) {
+      if (isTableHeader && !isMcpServersHeader) {
+        if (currentName) names.push(currentName);
+        inBlock = false;
+        currentName = null;
+      } else {
+        const withoutComment = line.replace(/#.*$/, '');
+        const nameMatch = withoutComment.match(/^\s*name\s*=\s*["']([^"']+)["']/);
+        if (nameMatch) {
+          currentName = nameMatch[1];
+        }
+      }
+    }
+  }
+  if (inBlock && currentName) {
+    names.push(currentName);
+  }
+  return names;
 }
 
 /**
@@ -449,6 +550,7 @@ function buildMcpRegistrationTargets(homeDir) {
       path: path.join(homeDir, '.codex', 'config.toml'),
       gate: () => fs.existsSync(path.join(homeDir, '.codex', 'config.toml')) || commandExists('codex'),
       format: 'toml',
+      tomlTables: 'per-server',
     },
     {
       name: 'OpenCode',
@@ -663,7 +765,72 @@ function tomlServerLines(keys) {
  * lose any other content is refused and the file is left as it was. An
  * install may leave a tool unregistered, but it must never damage a config.
  */
+function registerTablePerServerToml(targetPath, bins) {
+  const { guardianBin, memoryBin } = bins;
+  const original = readFileIfExists(targetPath) ?? '';
+  let content = original;
+
+  const inlineArray = findInlineMcpServersArray(content);
+  if (inlineArray && !inlineArray.isEmpty) {
+    if (TOML
+      && tomlHasTableServer(content, 'egc-guardian')
+      && tomlHasTableServer(content, 'egc-memory')) {
+      return false;
+    }
+    throw new TypeError(
+      `existing file at ${targetPath} declares mcp_servers as an inline array - left untouched: ` +
+      'rewrite it as [mcp_servers.<id>] tables, or add egc-guardian and egc-memory to it by hand, then re-run'
+    );
+  }
+  if (inlineArray) {
+    const lines = content.split('\n');
+    lines.splice(inlineArray.start, inlineArray.end - inlineArray.start + 1);
+    content = lines.join('\n');
+  }
+
+  const hasGuardian = tomlHasTableServer(content, 'egc-guardian');
+  const hasMemory = tomlHasTableServer(content, 'egc-memory');
+  if (hasGuardian && hasMemory) {
+    return false;
+  }
+  content = removeLegacyTomlServer(content, 'egc-guardian');
+  content = removeLegacyTomlServer(content, 'egc-memory');
+
+  const remainingLegacy = findRemainingLegacyMcpServers(content);
+  if (remainingLegacy.length > 0) {
+    const foreign = remainingLegacy[0];
+    throw new TypeError(
+      `existing file at ${targetPath} contains legacy [[mcp_servers]] entry "${foreign}" - left untouched: ` +
+      `rewrite it as a [mcp_servers.${foreign}] table or add egc-guardian and egc-memory by hand, then re-run`
+    );
+  }
+
+  let appended = false;
+  if (!hasGuardian) {
+    content += (content.endsWith('\n') || content.length === 0 ? '' : '\n') +
+      `\n[mcp_servers.egc-guardian]\ncommand = "node"\nargs = ["${tomlEscape(guardianBin)}"]\n`;
+    appended = true;
+  }
+  if (!hasMemory) {
+    content += (content.endsWith('\n') || content.length === 0 ? '' : '\n') +
+      `\n[mcp_servers.egc-memory]\ncommand = "node"\nargs = ["${tomlEscape(memoryBin)}"]\n`;
+    appended = true;
+  }
+  if (!appended) return false;
+  if (parsesAsToml(original) && !keepsEverythingElse(original, content)) {
+    throw new TypeError(
+      `existing file at ${targetPath} could not be updated without breaking it - left untouched: ` +
+      'add egc-guardian and egc-memory as [mcp_servers.<id>] tables by hand, then re-run'
+    );
+  }
+  writeConfig(targetPath, content);
+  return true;
+}
+
 function registerToml(targetPath, bins, target = {}) {
+  if (target.tomlTables === 'per-server') {
+    return registerTablePerServerToml(targetPath, bins);
+  }
   const { guardianBin, memoryBin } = bins;
   const extraLines = tomlServerLines(target.tomlServerKeys);
   const original = readFileIfExists(targetPath) ?? '';
