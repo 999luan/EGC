@@ -62,6 +62,17 @@
       "adapters": [
         "trae-project"
       ]
+    },
+    {
+      "id": "VIBE_HOME",
+      "description": "VIBE_HOME set, which moves the Mistral Vibe data root",
+      "platform": "linux",
+      "env": {
+        "VIBE_HOME": "$VIBE_HOME"
+      },
+      "adapters": [
+        "vibe-home"
+      ]
     }
   ],
   "rows": [
@@ -1759,6 +1770,175 @@
       "status": "egc",
       "note": "EGC runtime: the install state EGC writes to track the files it manages.",
       "variant": "CRUSH_GLOBAL_CONFIG"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "library",
+      "path": "~/.vibe/egc/library/agents/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own."
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "library",
+      "path": "~/.vibe/egc/library/commands/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own."
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "hooks",
+      "path": "~/.vibe/hooks.toml",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "library",
+      "path": "~/.vibe/egc/library/rules/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own."
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "runtime",
+      "path": "~/.vibe/scripts/",
+      "status": "egc",
+      "note": "EGC runtime: the scripts the tool's hook or plugin entries run."
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "context",
+      "path": "~/.vibe/AGENTS.md",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "skills",
+      "path": "~/.vibe/skills/",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "state",
+      "path": "~/.vibe/egc/install-state.json",
+      "status": "egc",
+      "note": "EGC runtime: the install state EGC writes to track the files it manages."
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "library",
+      "path": "$VIBE_HOME/egc/library/agents/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own.",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "library",
+      "path": "$VIBE_HOME/egc/library/commands/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own.",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "hooks",
+      "path": "$VIBE_HOME/hooks.toml",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "library",
+      "path": "$VIBE_HOME/egc/library/rules/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own.",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "runtime",
+      "path": "$VIBE_HOME/scripts/",
+      "status": "egc",
+      "note": "EGC runtime: the scripts the tool's hook or plugin entries run.",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "context",
+      "path": "$VIBE_HOME/AGENTS.md",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "skills",
+      "path": "$VIBE_HOME/skills/",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-home",
+      "surface": "state",
+      "path": "$VIBE_HOME/egc/install-state.json",
+      "status": "egc",
+      "note": "EGC runtime: the install state EGC writes to track the files it manages.",
+      "variant": "VIBE_HOME"
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "library",
+      "path": "<project>/.vibe/egc/library/agents/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own."
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "library",
+      "path": "<project>/.vibe/egc/library/commands/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own."
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "hooks",
+      "path": "<project>/.vibe/hooks.toml",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe"
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "library",
+      "path": "<project>/.vibe/egc/library/rules/",
+      "status": "egc",
+      "note": "EGC library folder: a reference copy of the prompt library that the tool does not load on its own."
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "runtime",
+      "path": "<project>/.vibe/scripts/",
+      "status": "egc",
+      "note": "EGC runtime: the scripts the tool's hook or plugin entries run."
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "skills",
+      "path": "<project>/.vibe/skills/",
+      "status": "documented",
+      "source": "https://github.com/mistralai/mistral-vibe"
+    },
+    {
+      "adapter": "vibe-project",
+      "surface": "state",
+      "path": "<project>/.vibe/egc-install-state.json",
+      "status": "egc",
+      "note": "EGC runtime: the install state EGC writes to track the files it manages."
     }
   ]
 }

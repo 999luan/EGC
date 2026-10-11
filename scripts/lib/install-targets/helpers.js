@@ -28,7 +28,7 @@ function normalizeRelativePath(relativePath) {
 // so a home root such as ~/.amp or ~/.claude never grows either.
 const IDENTITY_SOURCE_PATH_OWNERS = Object.freeze({
   '.agents': Object.freeze(['egc', 'cursor', 'antigravity', 'codex', 'codebuddy', 'zed']),
-  'AGENTS.md': Object.freeze(['egc', 'cursor', 'antigravity', 'codex', 'codebuddy', 'zed']),
+  'AGENTS.md': Object.freeze(['egc', 'cursor', 'antigravity', 'codex', 'codebuddy', 'zed', 'vibe']),
 });
 
 function isForeignPlatformPath(sourceRelativePath, adapterTarget) {
@@ -193,6 +193,7 @@ const IDE_INSTALL_URLS = Object.freeze({
   zed:          { name: 'Zed',               url: 'https://zed.dev' },
   kimi:         { name: 'Kimi Code CLI',     url: 'https://github.com/MoonshotAI/kimi-code' },
   crush:        { name: 'Crush',             url: 'https://github.com/charmbracelet/crush' },
+  vibe:         { name: 'Mistral Vibe',      url: 'https://github.com/mistralai/mistral-vibe' },
 });
 
 // An adapter that picks its root by policy (config.resolveRoot) is detected
