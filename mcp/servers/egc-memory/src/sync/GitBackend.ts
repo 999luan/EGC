@@ -11,9 +11,9 @@ export class GitBackend extends SyncBackend {
   private config: SyncConfig | null = null;
   private readonly repoDir: string;
 
-  constructor() {
+  constructor(repoDir?: string) {
     super();
-    this.repoDir = SYNC_STATE_DIR;
+    this.repoDir = repoDir || SYNC_STATE_DIR;
     if (!fs.existsSync(this.repoDir)) {
       fs.mkdirSync(this.repoDir, { recursive: true });
     }
@@ -185,11 +185,48 @@ export class GitBackend extends SyncBackend {
     }
   }
 
-  private mirrorCopy(src: string, dest: string): void {
-    if (fs.existsSync(dest)) {
-      fs.rmSync(dest, { recursive: true, force: true });
+  mirrorCopy(src: string, dest: string): void {
+    const parent = path.dirname(dest);
+    if (!fs.existsSync(parent)) {
+      fs.mkdirSync(parent, { recursive: true });
     }
-    fs.mkdirSync(dest, { recursive: true });
-    fs.cpSync(src, dest, { recursive: true });
+    const tmpDest = path.join(parent, `.tmp-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      fs.cpSync(src, tmpDest, { recursive: true });
+    } catch (error) {
+      if (fs.existsSync(tmpDest)) {
+        fs.rmSync(tmpDest, { recursive: true, force: true });
+      }
+      throw error;
+    }
+
+    if (!fs.existsSync(dest)) {
+      fs.renameSync(tmpDest, dest);
+      return;
+    }
+
+    const backupDest = path.join(parent, `.tmp-old-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      fs.renameSync(dest, backupDest);
+    } catch (error) {
+      fs.rmSync(tmpDest, { recursive: true, force: true });
+      throw error;
+    }
+
+    try {
+      fs.renameSync(tmpDest, dest);
+    } catch (error) {
+      try {
+        fs.renameSync(backupDest, dest);
+      } catch {
+        // preserve backup if rollback failed
+      }
+      if (fs.existsSync(tmpDest)) {
+        fs.rmSync(tmpDest, { recursive: true, force: true });
+      }
+      throw error;
+    }
+
+    fs.rmSync(backupDest, { recursive: true, force: true });
   }
 }
