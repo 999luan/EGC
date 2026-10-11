@@ -44,7 +44,10 @@ function run(rawInput) {
   }
 
   if (budgetCheck.warn) {
-    console.error(`[EGC Budget Guardian] WARNING: ${budgetCheck.reason}`);
+    return {
+      exitCode: 0,
+      stderr: `[EGC Budget Guardian] WARNING: ${budgetCheck.reason}\n`,
+    };
   }
 
   return { exitCode: 0 };

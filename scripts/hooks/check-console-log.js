@@ -21,51 +21,64 @@ const EXCLUDED_PATTERNS = [
   /\.test\.[jt]sx?$/,
   /\.spec\.[jt]sx?$/,
   /\.config\.[jt]s$/,
-  /scripts\//,
-  /__tests__\//,
-  /__mocks__\//,
+  /(?:^|[\\/])scripts[\\/]/,
+  /(?:^|[\\/])__tests__[\\/]/,
+  /(?:^|[\\/])__mocks__[\\/]/,
 ];
 
-const MAX_STDIN = 1024 * 1024; // 1MB limit
-let data = '';
-process.stdin.setEncoding('utf8');
+function isExcluded(filePath) {
+  if (typeof filePath !== 'string') return false;
+  const normalized = filePath.replace(/\\/g, '/');
+  return EXCLUDED_PATTERNS.some(pattern => pattern.test(filePath) || pattern.test(normalized));
+}
 
-process.stdin.on('data', chunk => {
-  if (data.length < MAX_STDIN) {
-    const remaining = MAX_STDIN - data.length;
-    data += chunk.substring(0, remaining);
-  }
-});
+if (require.main === module) {
+  const MAX_STDIN = 1024 * 1024; // 1MB limit
+  let data = '';
+  process.stdin.setEncoding('utf8');
 
-process.stdin.on('end', () => {
-  try {
-    if (!isGitRepo()) {
-      process.stdout.write(data);
-      process.exit(0);
+  process.stdin.on('data', chunk => {
+    if (data.length < MAX_STDIN) {
+      const remaining = MAX_STDIN - data.length;
+      data += chunk.substring(0, remaining);
     }
+  });
 
-    const files = getGitModifiedFiles([String.raw`\.tsx?$`, String.raw`\.jsx?$`])
-      .filter(f => fs.existsSync(f))
-      .filter(f => !EXCLUDED_PATTERNS.some(pattern => pattern.test(f)));
-
-    let hasConsole = false;
-
-    for (const file of files) {
-      const content = readFile(file);
-      if (content?.includes('console.log')) {
-        log(`[Hook] WARNING: console.log found in ${file}`);
-        hasConsole = true;
+  process.stdin.on('end', () => {
+    try {
+      if (!isGitRepo()) {
+        process.stdout.write(data);
+        process.exit(0);
       }
+
+      const files = getGitModifiedFiles([String.raw`\.tsx?$`, String.raw`\.jsx?$`])
+        .filter(f => fs.existsSync(f))
+        .filter(f => !isExcluded(f));
+
+      let hasConsole = false;
+
+      for (const file of files) {
+        const content = readFile(file);
+        if (content?.includes('console.log')) {
+          log(`[Hook] WARNING: console.log found in ${file}`);
+          hasConsole = true;
+        }
+      }
+
+      if (hasConsole) {
+        log('[Hook] Remove console.log statements before committing');
+      }
+    } catch (err) {
+      log(`[Hook] check-console-log error: ${err.message}`);
     }
 
-    if (hasConsole) {
-      log('[Hook] Remove console.log statements before committing');
-    }
-  } catch (err) {
-    log(`[Hook] check-console-log error: ${err.message}`);
-  }
+    // Always output the original data
+    process.stdout.write(data);
+    process.exit(0);
+  });
+}
 
-  // Always output the original data
-  process.stdout.write(data);
-  process.exit(0);
-});
+module.exports = {
+  EXCLUDED_PATTERNS,
+  isExcluded,
+};

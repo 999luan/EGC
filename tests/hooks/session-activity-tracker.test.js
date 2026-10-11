@@ -70,6 +70,87 @@ function readMetricRows(homeDir) {
     .map(line => JSON.parse(line));
 }
 
+function runSessionResolutionTests() {
+  let passed = 0;
+  let failed = 0;
+
+  (test('prefers canonical EGC_SESSION_ID over legacy ECC_SESSION_ID and redacts bash summaries', () => {
+    const tmpHome = makeTempDir();
+    const input = {
+      tool_name: 'Bash',
+      tool_input: {
+        command: 'curl --token abc123 -H "Authorization: Bearer topsecret" https://example.com',
+      },
+      tool_output: { output: 'done' },
+    };
+    const result = runScript(input, {
+      ...withTempHome(tmpHome),
+      GEMINI_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: 'egc-session-1',
+      EGC_SESSION_ID: 'egc-session-2',
+    });
+    assert.strictEqual(result.code, 0);
+
+    const metricsFile = path.join(tmpHome, '.gemini', 'metrics', 'tool-usage.jsonl');
+    const row = JSON.parse(fs.readFileSync(metricsFile, 'utf8').trim());
+    assert.strictEqual(row.session_id, 'egc-session-2', 'canonical EGC_SESSION_ID must win when both are present');
+    assert.ok(row.input_summary.includes('<REDACTED>'));
+    assert.ok(!row.input_summary.includes('abc123'));
+    assert.ok(!row.input_summary.includes('topsecret'));
+    assert.ok(row.input_params_json.includes('<REDACTED>'));
+    assert.ok(!row.input_params_json.includes('abc123'));
+    assert.ok(!row.input_params_json.includes('topsecret'));
+
+    removeDirWithRetries(tmpHome);
+  }) ? passed++ : failed++);
+
+  (test('falls back to legacy ECC_SESSION_ID when canonical EGC_SESSION_ID is unset', () => {
+    const tmpHome = makeTempDir();
+    const input = {
+      tool_name: 'Bash',
+      tool_input: { command: 'echo legacy-compat' },
+      tool_output: { output: 'done' },
+    };
+    const result = runScript(input, {
+      ...withTempHome(tmpHome),
+      GEMINI_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: 'egc-session-legacy',
+    });
+    assert.strictEqual(result.code, 0);
+
+    const metricsFile = path.join(tmpHome, '.gemini', 'metrics', 'tool-usage.jsonl');
+    const row = JSON.parse(fs.readFileSync(metricsFile, 'utf8').trim());
+    assert.strictEqual(row.session_id, 'egc-session-legacy', 'legacy ECC_SESSION_ID must remain a valid fallback');
+
+    removeDirWithRetries(tmpHome);
+  }) ? passed++ : failed++);
+
+  (test('uses session_id from input JSON when environment variables are unset (#1704)', () => {
+    const tmpHome = makeTempDir();
+    const input = {
+      tool_name: 'Bash',
+      session_id: 'egc-session-from-payload',
+      tool_input: { command: 'echo payload-session' },
+      tool_output: { output: 'done' },
+    };
+    const result = runScript(input, {
+      ...withTempHome(tmpHome),
+      GEMINI_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: '',
+      EGC_SESSION_ID: '',
+    });
+    assert.strictEqual(result.code, 0);
+
+    const metricsFile = path.join(tmpHome, '.gemini', 'metrics', 'tool-usage.jsonl');
+    const row = JSON.parse(fs.readFileSync(metricsFile, 'utf8').trim());
+    assert.strictEqual(row.session_id, 'egc-session-from-payload', 'session_id from hook JSON input must be used');
+
+    removeDirWithRetries(tmpHome);
+  }) ? passed++ : failed++);
+
+  return { passed, failed };
+}
+
 function runTests() {
   console.log('\n=== Testing session-activity-tracker.js ===\n');
 
@@ -379,56 +460,9 @@ function runTests() {
     removeDirWithRetries(repoDir);
   }) ? passed++ : failed++);
 
-  (test('prefers canonical EGC_SESSION_ID over legacy ECC_SESSION_ID and redacts bash summaries', () => {
-    const tmpHome = makeTempDir();
-    const input = {
-      tool_name: 'Bash',
-      tool_input: {
-        command: 'curl --token abc123 -H "Authorization: Bearer topsecret" https://example.com',
-      },
-      tool_output: { output: 'done' },
-    };
-    const result = runScript(input, {
-      ...withTempHome(tmpHome),
-      GEMINI_HOOK_EVENT_NAME: 'PostToolUse',
-      ECC_SESSION_ID: 'egc-session-1',
-      EGC_SESSION_ID: 'egc-session-2',
-    });
-    assert.strictEqual(result.code, 0);
-
-    const metricsFile = path.join(tmpHome, '.gemini', 'metrics', 'tool-usage.jsonl');
-    const row = JSON.parse(fs.readFileSync(metricsFile, 'utf8').trim());
-    assert.strictEqual(row.session_id, 'egc-session-2', 'canonical EGC_SESSION_ID must win when both are present');
-    assert.ok(row.input_summary.includes('<REDACTED>'));
-    assert.ok(!row.input_summary.includes('abc123'));
-    assert.ok(!row.input_summary.includes('topsecret'));
-    assert.ok(row.input_params_json.includes('<REDACTED>'));
-    assert.ok(!row.input_params_json.includes('abc123'));
-    assert.ok(!row.input_params_json.includes('topsecret'));
-
-    removeDirWithRetries(tmpHome);
-  }) ? passed++ : failed++);
-
-  (test('falls back to legacy ECC_SESSION_ID when canonical EGC_SESSION_ID is unset', () => {
-    const tmpHome = makeTempDir();
-    const input = {
-      tool_name: 'Bash',
-      tool_input: { command: 'echo legacy-compat' },
-      tool_output: { output: 'done' },
-    };
-    const result = runScript(input, {
-      ...withTempHome(tmpHome),
-      GEMINI_HOOK_EVENT_NAME: 'PostToolUse',
-      ECC_SESSION_ID: 'egc-session-legacy',
-    });
-    assert.strictEqual(result.code, 0);
-
-    const metricsFile = path.join(tmpHome, '.gemini', 'metrics', 'tool-usage.jsonl');
-    const row = JSON.parse(fs.readFileSync(metricsFile, 'utf8').trim());
-    assert.strictEqual(row.session_id, 'egc-session-legacy', 'legacy ECC_SESSION_ID must remain a valid fallback');
-
-    removeDirWithRetries(tmpHome);
-  }) ? passed++ : failed++);
+  const sessionRes = runSessionResolutionTests();
+  passed += sessionRes.passed;
+  failed += sessionRes.failed;
 
   (test('handles invalid JSON gracefully', () => {
     const tmpHome = makeTempDir();

@@ -21,8 +21,8 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const path = require('node:path');
 
 // Shell metacharacters that cmd.exe interprets as command separators/operators.
-// Includes spaces and parentheses to guard paths like "C:\Users\John Doe\...".
-const UNSAFE_PATH_CHARS = /[&|<>^%!\s()]/;
+// Paths with spaces are passed safely as arguments and are not rejected.
+const UNSAFE_PATH_CHARS = /[&|<>^%!\r\n]/;
 
 const { findProjectRoot, detectFormatter, resolveFormatterBin } = require('../lib/resolve-formatter');
 
@@ -37,14 +37,14 @@ const MAX_STDIN = 1024 * 1024; // 1MB limit
  */
 function executeFormatterCommand(resolved, args, resolvedFilePath, projectRoot) {
   if (process.platform === 'win32' && resolved.bin.endsWith('.cmd')) {
-    // Windows: .cmd files require shell to execute. Guard against
+    // Windows: .cmd files require command processor to execute. Guard against
     // command injection by rejecting paths with shell metacharacters.
     if (UNSAFE_PATH_CHARS.test(resolvedFilePath)) {
       throw new Error('File path contains unsafe shell characters');
     }
-    const result = spawnSync(resolved.bin, args, {
+    const comspec = process.env.COMSPEC || 'cmd.exe';
+    const result = spawnSync(comspec, ['/d', '/s', '/c', resolved.bin, ...args], {
       cwd: projectRoot,
-      shell: true,
       stdio: 'pipe',
       timeout: 15000
     });
@@ -115,4 +115,9 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run };
+module.exports = {
+  run,
+  executeFormatterCommand,
+  UNSAFE_PATH_CHARS,
+  processFileForFormatting,
+};

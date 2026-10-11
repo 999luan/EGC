@@ -292,6 +292,24 @@ function runTests() {
     assert.strictEqual(result.stdout, 'stdin-passthrough');
   })) passed++; else failed++;
 
+  if (test('does not treat a script as exporting run() when run is only in comments (#1704)', () => {
+    const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'egc-hook-test-'));
+    try {
+      // Script has module.exports and the word "run" in a comment, but does NOT export run().
+      // If run-with-flags mistakenly tries require(), this side-effect will blow up and emit stderr.
+      fs.writeFileSync(
+        path.join(pluginRoot, 'not-run-export.js'),
+        "// run directly with node\nif (require.main !== module) throw new Error('should not be required');\nmodule.exports = { execute: () => {} };\nprocess.stdout.write('spawned-ok');\nprocess.exit(0);\n"
+      );
+      const result = runDispatcher({ pluginRoot, relScriptPath: 'not-run-export.js', profilesCsv: 'minimal,standard,strict', input: 'test-in' });
+      assert.strictEqual(result.code, 0);
+      assert.strictEqual(result.stdout, 'spawned-ok');
+      assert.strictEqual(result.stderr, '');
+    } finally {
+      fs.rmSync(pluginRoot, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
   const childEnvCases = [legacyHookEnvCase()];
   passed += childEnvCases.filter(Boolean).length;
   failed += childEnvCases.filter(ok => !ok).length;

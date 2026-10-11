@@ -46,7 +46,7 @@ function runScript(scriptPath, input, env = {}) {
   });
 }
 
-function runTests() {
+async function runTests() {
   console.log('\n=== Testing Bash hook dispatchers ===\n');
 
   let passed = 0;
@@ -153,6 +153,28 @@ function runTests() {
     // host still reads the block from the exit code, never a stale allow.
     assert.strictEqual(dispatcher.resolvePreOutput(raw, { output: '', exitCode: 2 }), '');
   })) passed++; else failed++;
+
+  if (await (async () => {
+    try {
+      const asyncHook = {
+        id: 'test:async:hook',
+        profiles: 'minimal,standard,strict',
+        run: async () => {
+          await new Promise(r => setTimeout(r, 10));
+          return { exitCode: 2, stderr: 'blocked by async hook' };
+        },
+      };
+      const res = await dispatcher.runHooks('{"cmd":"test"}', [asyncHook]);
+      assert.strictEqual(res.exitCode, 2, 'async hook result must be awaited');
+      assert.ok(res.stderr.includes('blocked by async hook'), 'async hook stderr must be captured');
+      console.log('  ✓ runHooks awaits hooks returning a promise (#1704)');
+      return true;
+    } catch (e) {
+      console.log('  ✗ runHooks awaits hooks returning a promise (#1704)');
+      console.log(`    Error: ${e.message}`);
+      return false;
+    }
+  })()) passed++; else failed++;
 
   console.log(`\nResults: Passed: ${passed}, Failed: ${failed}`);
   process.exit(failed > 0 ? 1 : 0);

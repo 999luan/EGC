@@ -120,7 +120,7 @@ async function executeHook(hookId, scriptPath, pluginRoot, raw, truncated) { // 
   // which would interfere with the parent process or cause double execution.
   let hookModule;
   const src = fs.readFileSync(scriptPath, 'utf8'); // NOSONAR jssecurity:S8707
-  const hasRunExport = /\bmodule\.exports\b/.test(src) && /\brun\b/.test(src);
+  const hasRunExport = /(?:module\.)?exports(?:\.run\b|\s*=\s*(?:\{[^}]*\brun\b|run\b))/.test(src);
 
   if (hasRunExport) {
     try {

@@ -138,7 +138,7 @@ function normalizeHookResult(previousRaw, output) {
   };
 }
 
-function runHooks(rawInput, hooks) {
+async function runHooks(rawInput, hooks) {
   let currentRaw = rawInput;
   let stderr = '';
 
@@ -158,7 +158,8 @@ function runHooks(rawInput, hooks) {
       }
 
       trace('hook:dispatch:running', { id: hook.id });
-      const result = normalizeHookResult(currentRaw, hook.run(currentRaw));
+      const rawResult = await hook.run(currentRaw);
+      const result = normalizeHookResult(currentRaw, rawResult);
       currentRaw = result.raw;
       if (result.stderr) {
         stderr += result.stderr.endsWith('\n') ? result.stderr : `${result.stderr}\n`;
@@ -178,11 +179,11 @@ function runHooks(rawInput, hooks) {
   return { output: currentRaw, stderr, exitCode: 0 };
 }
 
-function runPreBash(rawInput) {
+async function runPreBash(rawInput) {
   return runHooks(rawInput, PRE_BASH_HOOKS);
 }
 
-function runPostBash(rawInput) {
+async function runPostBash(rawInput) {
   return runHooks(rawInput, POST_BASH_HOOKS);
 }
 
@@ -235,8 +236,8 @@ async function main() {
   }
 
   const result = mode === 'post'
-    ? runPostBash(raw)
-    : runPreBash(raw);
+    ? await runPostBash(raw)
+    : await runPreBash(raw);
 
   if (result.stderr) {
     process.stderr.write(result.stderr);
@@ -265,6 +266,7 @@ module.exports = {
   POST_BASH_HOOKS,
   runPreBash,
   runPostBash,
+  runHooks,
   toPreToolUseOutput,
   denyEnvelope,
   resolvePreOutput,
