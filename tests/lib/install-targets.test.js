@@ -2397,17 +2397,44 @@ function runTests() {
     assert.ok(targets.includes('copilot'), 'Should include copilot target');
   }));
 
-  tally(test('resolves zed home adapter root to ~/.config/zed and install-state path', () => {
+  tally(test('resolves zed home adapter root to ~/.config/zed on Linux/macOS and %APPDATA%\\Zed on Windows (#1843)', () => {
     const adapter = getInstallTargetAdapter('zed');
     const homeDir = '/Users/example';
-    const root = adapter.resolveRoot({ homeDir });
-    const statePath = adapter.getInstallStatePath({ homeDir });
 
     assert.strictEqual(adapter.id, 'zed-home');
     assert.strictEqual(adapter.target, 'zed');
     assert.strictEqual(adapter.kind, 'home');
-    assert.strictEqual(root, path.join(homeDir, '.config', 'zed'));
-    assert.strictEqual(statePath, path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json'));
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir, platform: 'linux' }),
+      path.join(homeDir, '.config', 'zed')
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir, platform: 'darwin' }),
+      path.join(homeDir, '.config', 'zed'),
+      'macOS uses ~/.config too'
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir, platform: 'win32' }),
+      path.join(homeDir, 'AppData', 'Roaming', 'Zed')
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir: os.homedir(), platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
+      path.join('R:', 'Roaming', 'Zed'),
+      'the real home follows %APPDATA%'
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir: '/sandbox/home', platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
+      path.join('/sandbox/home', 'AppData', 'Roaming', 'Zed'),
+      'a home other than the real one never writes into the real %APPDATA%'
+    );
+    assert.strictEqual(
+      adapter.getInstallStatePath({ homeDir, platform: 'linux' }),
+      path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json')
+    );
+    assert.strictEqual(
+      adapter.getInstallStatePath({ homeDir, platform: 'win32' }),
+      path.join(homeDir, 'AppData', 'Roaming', 'Zed', 'egc', 'install-state.json')
+    );
   }));
 
   tally(test('zed adapter supports lookup by target and adapter id', () => {
@@ -2431,9 +2458,13 @@ function runTests() {
       modules: [{ id: 'workflow', paths: ['skills/workflow/tdd-workflow'] }],
     });
 
+    const expectedRoot = process.platform === 'win32'
+      ? path.join(homeDir, 'AppData', 'Roaming', 'Zed')
+      : path.join(homeDir, '.config', 'zed');
+
     assert.strictEqual(plan.adapter.id, 'zed-home');
-    assert.strictEqual(plan.targetRoot, path.join(homeDir, '.config', 'zed'));
-    assert.strictEqual(plan.installStatePath, path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json'));
+    assert.strictEqual(plan.targetRoot, expectedRoot);
+    assert.strictEqual(plan.installStatePath, path.join(expectedRoot, 'egc', 'install-state.json'));
     assert.ok(
       plan.operations.some(op =>
         normalizedRelativePath(op.sourceRelativePath) === 'skills/workflow/tdd-workflow'
@@ -2441,12 +2472,43 @@ function runTests() {
       ),
       'Should strip category and install skill flat under ~/.agents/skills/, the only global directory Zed reads'
     );
-    assert.ok(!plan.operations.some(op => op.destinationPath.startsWith(path.join(homeDir, '.config', 'zed', 'skills'))), 'nothing is planned under ~/.config/zed/skills');
+    assert.ok(!plan.operations.some(op => op.destinationPath.startsWith(path.join(expectedRoot, 'skills'))), 'nothing is planned under <targetRoot>/skills');
     const adapter = getInstallTargetAdapter('zed');
     assert.deepStrictEqual(
       adapter.resolveManagedRoots({ homeDir }, adapter),
-      [path.join(homeDir, '.config', 'zed'), path.join(homeDir, '.agents')],
+      [expectedRoot, path.join(homeDir, '.agents')],
       'the shared ~/.agents root is managed, so retirement and uninstall reach it and see the siblings that share it'
+    );
+  }));
+
+  tally(test('zed adapter scaffold planning forces config root per platform (#1843)', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const homeDir = '/sandbox/home';
+
+    const linuxPlan = planInstallTargetScaffold({
+      target: 'zed',
+      repoRoot,
+      homeDir,
+      platform: 'linux',
+      modules: [{ id: 'workflow', paths: ['skills/workflow/tdd-workflow'] }],
+    });
+    assert.strictEqual(linuxPlan.targetRoot, path.join(homeDir, '.config', 'zed'));
+    assert.strictEqual(linuxPlan.installStatePath, path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json'));
+
+    const win32Plan = planInstallTargetScaffold({
+      target: 'zed',
+      repoRoot,
+      homeDir,
+      platform: 'win32',
+      modules: [{ id: 'workflow', paths: ['skills/workflow/tdd-workflow'] }],
+    });
+    assert.strictEqual(win32Plan.targetRoot, path.join(homeDir, 'AppData', 'Roaming', 'Zed'));
+    assert.strictEqual(win32Plan.installStatePath, path.join(homeDir, 'AppData', 'Roaming', 'Zed', 'egc', 'install-state.json'));
+    assert.ok(
+      win32Plan.operations.some(op =>
+        normalizedRelativePath(op.sourceRelativePath) === 'skills/workflow/tdd-workflow'
+        && op.destinationPath === path.join(homeDir, '.agents', 'skills', 'tdd-workflow')
+      )
     );
   }));
 
