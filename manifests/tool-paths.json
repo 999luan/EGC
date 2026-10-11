@@ -740,14 +740,6 @@
     },
     {
       "adapter": "codebuddy-project",
-      "surface": "context",
-      "path": "<project>/.codebuddy/AGENTS.md",
-      "status": "unverified",
-      "source": "https://www.codebuddy.ai/docs/cli/memory",
-      "note": "CodeBuddy's memory docs list CODEBUDDY.md and .codebuddy/rules, not .codebuddy/AGENTS.md (read on 2026-10-10)."
-    },
-    {
-      "adapter": "codebuddy-project",
       "surface": "agents",
       "path": "<project>/.codebuddy/agents/",
       "status": "documented",

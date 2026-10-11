@@ -2127,6 +2127,82 @@ function runTests() {
     );
   }));
 
+  tally(test('does not install root AGENTS.md into CodeBuddy project context (#1840)', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const projectRoot = '/workspace/app';
+
+    const plan = planInstallTargetScaffold({
+      target: 'codebuddy',
+      repoRoot,
+      projectRoot,
+      modules: [
+        {
+          id: 'agents-core',
+          paths: ['.agents', 'agents', 'AGENTS.md'],
+        },
+      ],
+    });
+
+    assert.ok(
+      !plan.operations.some(operation => (
+        normalizedRelativePath(operation.sourceRelativePath) === 'AGENTS.md'
+      )),
+      'CodeBuddy installs should not copy EGC root AGENTS.md into host project context'
+    );
+    assert.ok(
+      !plan.operations.some(operation => (
+        operation.destinationPath === path.join(projectRoot, '.codebuddy', 'AGENTS.md')
+      )),
+      'CodeBuddy installs should not create .codebuddy/AGENTS.md'
+    );
+  }));
+
+  tally(test('codebuddy adapter retires an existing .codebuddy/AGENTS.md on upgrade (#1840)', () => {
+    const fs = require('fs');
+    const repoRoot = path.join(__dirname, '..', '..');
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'egc-codebuddy-retire-'));
+    const targetRoot = path.join(projectRoot, '.codebuddy');
+    try {
+      const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+      const statePath = path.join(targetRoot, 'egc-install-state.json');
+      const state = createInstallState({
+        adapter: { id: 'codebuddy-project' },
+        targetRoot,
+        installStatePath: statePath,
+        request: { profile: 'full', modules: ['agents-core'], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['agents-core'], skippedModules: [] },
+        operations: [
+          {
+            kind: 'copy-file',
+            moduleId: 'agents-core',
+            sourceRelativePath: 'AGENTS.md',
+            destinationPath: path.join(targetRoot, 'AGENTS.md'),
+            strategy: 'preserve-relative-path',
+            ownership: 'managed',
+            scaffoldOnly: true,
+          },
+        ],
+        source: { repoVersion: require('../../package.json').version, repoCommit: 'abc123', manifestVersion: 1 },
+      });
+      writeInstallState(statePath, state);
+
+      const plan = planInstallTargetScaffold({
+        target: 'codebuddy',
+        repoRoot,
+        projectRoot,
+        modules: [{ id: 'agents-core', paths: ['.agents', 'agents', 'AGENTS.md'] }],
+      });
+
+      assert.deepStrictEqual(
+        plan.retirements.map(entry => entry.destinationPath),
+        [path.join(targetRoot, 'AGENTS.md')],
+        'the retired .codebuddy/AGENTS.md file must be offered for retirement'
+      );
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  }));
+
   tally(test('antigravity-project adapter uses .agents (plural) as root directory', () => {
     const adapter = getInstallTargetAdapter('antigravity');
     const projectRoot = '/workspace/app';

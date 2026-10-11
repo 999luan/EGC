@@ -179,7 +179,6 @@ Status: **documented** paths are read by the tool per the linked docs; **egc** p
 | Surface | Path | Variant | Status | Source | Note |
 | --- | --- | --- | --- | --- | --- |
 | library | `<project>/.codebuddy/.agents/` | default | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
-| context | `<project>/.codebuddy/AGENTS.md` | default | unverified | <https://www.codebuddy.ai/docs/cli/memory> | CodeBuddy's memory docs list CODEBUDDY.md and .codebuddy/rules, not .codebuddy/AGENTS.md (read on 2026-10-10). |
 | agents | `<project>/.codebuddy/agents/` | default | documented | <https://www.codebuddy.ai/docs/cli/sub-agents> |  |
 | commands | `<project>/.codebuddy/commands/` | default | documented | <https://www.codebuddy.ai/docs/cli/slash-commands> |  |
 | runtime | `<project>/.codebuddy/hooks/` | default | egc |  | EGC runtime: hook scripts the hook configuration of the tool points at. |

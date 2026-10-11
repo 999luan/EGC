@@ -156,6 +156,13 @@ module.exports = createInstallTargetAdapter({
             });
           }
 
+          // CodeBuddy reads project memory from CODEBUDDY.md, .codebuddy/CODEBUDDY.md,
+          // and .codebuddy/rules/ (https://www.codebuddy.ai/docs/cli/memory),
+          // not .codebuddy/AGENTS.md; do not install root AGENTS.md into .codebuddy/.
+          if (sourceRelativePath === 'AGENTS.md') {
+            return [];
+          }
+
           // CodeBuddy discovers skills at .codebuddy/skills/<name>/ (flat);
           // planFlatSkillOperation strips the leading category segment for
           // skills/** paths and scaffolds everything else as-is.
