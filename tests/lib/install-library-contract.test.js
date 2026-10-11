@@ -114,6 +114,12 @@ function plannedDestinations(target, homeDir, projectRoot) {
     if (destination.includes('/rules/') || destination.includes('/.clinerules/')) {
       index.rules.add(stem);
       index.rules.add(`${parent}/${stem}`);
+    } else if (path.posix.basename(destination) === 'AGENTS.md' && operation.kind === 'merge-markdown-memory-rule') {
+      const source = normalize(operation.sourceRelativePath);
+      const ruleStem = stemOf(source);
+      const ruleParent = parentOf(source);
+      index.rules.add(ruleStem);
+      index.rules.add(`${ruleParent}/${ruleStem}`);
     }
   }
   return { plan, index };

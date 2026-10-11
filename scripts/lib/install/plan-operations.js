@@ -4,7 +4,7 @@ const path = require('node:path');
 const { isGeneratedRuntimeSourcePath, isHostPlacedSourcePath, isIgnoredSourceDirectory, isIgnoredSourceFile } = require('../install-source-filters');
 const { HOOK_OPERATION_KIND } = require('../claude-settings-hooks');
 const { MERGE_YAML_READ_LIST_KIND } = require('../aider-config-merge');
-const { MERGE_MARKDOWN_INDEX_KIND } = require('../warp-agents-merge');
+const { MERGE_MARKDOWN_INDEX_KIND, MERGE_MARKDOWN_MEMORY_RULE_KIND } = require('../warp-agents-merge');
 const { GENERATE_CONTEXT_FILE_KIND, createGeneratedContextOperation, isGeneratedContextSource } = require('../generated-context-files');
 const { assertSafeMcpConfig, isMcpConfigPath } = require('../mcp-config');
 
@@ -202,7 +202,7 @@ function materializeScaffoldOperation(sourceRoot, operation) {
     return [{ ...operation, scaffoldOnly: false }];
   }
 
-  if (operation.kind === MERGE_MARKDOWN_INDEX_KIND || operation.kind === GENERATE_CONTEXT_FILE_KIND) {
+  if (operation.kind === MERGE_MARKDOWN_INDEX_KIND || operation.kind === MERGE_MARKDOWN_MEMORY_RULE_KIND || operation.kind === GENERATE_CONTEXT_FILE_KIND) {
     return [{ ...operation, scaffoldOnly: false }];
   }
 

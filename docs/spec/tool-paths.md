@@ -347,7 +347,6 @@ Status: **documented** paths are read by the tool per the linked docs; **egc** p
 
 | Surface | Path | Variant | Status | Source | Note |
 | --- | --- | --- | --- | --- | --- |
-| rules | `<project>/.warp/rules/` | default | unverified | <https://docs.warp.dev/agent-platform/warp-agents/rules> | Warp reads AGENTS.md (and WARP.md) as rules; its docs do not name a .warp/rules directory (read on 2026-10-10). |
 | skills | `<project>/.warp/skills/` | default | documented | <https://docs.warp.dev/agent-platform/warp-agents/skills> |  |
 | rules | `<project>/AGENTS.md` | default | documented | <https://docs.warp.dev/agent-platform/warp-agents/rules> |  |
 | state | `<project>/.warp/egc-install-state.json` | default | egc |  | EGC runtime: the install state EGC writes to track the files it manages. |

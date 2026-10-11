@@ -37,7 +37,10 @@ const {
 } = require('./aider-config-merge');
 const {
   MERGE_MARKDOWN_INDEX_KIND,
+  MERGE_MARKDOWN_MEMORY_RULE_KIND,
+  nextMemoryRuleContent,
   nextSkillIndexContent,
+  removeMemoryRule,
   removeSkillIndexEntry,
 } = require('./warp-agents-merge');
 const {
@@ -503,6 +506,23 @@ function repairMergeMarkdownIndex(operation) {
   replaceFileWith(operation.destinationPath, descriptor => fs.writeFileSync(descriptor, nextContent));
 }
 
+function repairMergeMarkdownMemoryRule(repoRoot, operation) {
+  const existingContent = fs.existsSync(operation.destinationPath)
+    ? fs.readFileSync(operation.destinationPath, 'utf8')
+    : null;
+  let ruleContent = operation.ruleContent;
+  if (!ruleContent) {
+    const sourcePath = resolveOperationSourcePath(repoRoot, operation);
+    if (sourcePath && fs.existsSync(sourcePath)) {
+      ruleContent = fs.readFileSync(sourcePath, 'utf8');
+    }
+  }
+  const nextContent = nextMemoryRuleContent(existingContent, { ...operation, ruleContent });
+  if (nextContent === null || nextContent === existingContent) return;
+  ensureParentDir(operation.destinationPath);
+  replaceFileWith(operation.destinationPath, descriptor => fs.writeFileSync(descriptor, nextContent));
+}
+
 // Rewritten only when the file is gone or lost its project-memory section;
 // a populated file is the healthy state, never a drift to undo.
 function repairGeneratedContextFile(operation) {
@@ -528,6 +548,8 @@ function executeRepairOperation(repoRoot, operation) {
     repairMergeYamlReadList(operation);
   } else if (operation.kind === MERGE_MARKDOWN_INDEX_KIND) {
     repairMergeMarkdownIndex(operation);
+  } else if (operation.kind === MERGE_MARKDOWN_MEMORY_RULE_KIND) {
+    repairMergeMarkdownMemoryRule(repoRoot, operation);
   } else if (operation.kind === GENERATE_CONTEXT_FILE_KIND) {
     repairGeneratedContextFile(operation);
   } else {
@@ -637,6 +659,18 @@ function uninstallWarpAgentsIndexEntry(operation) {
   return { removedPaths: [], cleanupTargets: [] };
 }
 
+function uninstallWarpAgentsMemoryRule(operation) {
+  if (!fs.existsSync(operation.destinationPath)) {
+    return { removedPaths: [], cleanupTargets: [] };
+  }
+
+  const existingContent = fs.readFileSync(operation.destinationPath, 'utf8');
+  const nextContent = removeMemoryRule(existingContent);
+  ensureParentDir(operation.destinationPath);
+  replaceFileWith(operation.destinationPath, descriptor => fs.writeFileSync(descriptor, nextContent));
+  return { removedPaths: [], cleanupTargets: [] };
+}
+
 function uninstallManagedHookOperation(operation) {
   // Strips only the EGC-managed hook entry. The settings file itself is never
   // deleted because Claude Code and the user own its other keys. Which
@@ -662,6 +696,7 @@ const UNINSTALL_HANDLERS = {
   [HOOK_OPERATION_KIND]: uninstallManagedHookOperation,
   [MERGE_YAML_READ_LIST_KIND]: uninstallAiderConfigReadList,
   [MERGE_MARKDOWN_INDEX_KIND]: uninstallWarpAgentsIndexEntry,
+  [MERGE_MARKDOWN_MEMORY_RULE_KIND]: uninstallWarpAgentsMemoryRule,
   [GENERATE_CONTEXT_FILE_KIND]: uninstallGeneratedContextFile,
 };
 
@@ -747,6 +782,22 @@ function inspectWarpAgentsIndexOperation(operation, destinationPath) {
   return inspectResult('ok', operation, destinationPath);
 }
 
+function inspectWarpAgentsMemoryRuleOperation(repoRoot, operation, destinationPath) {
+  const existingContent = readFileUtf8(destinationPath);
+  let ruleContent = operation.ruleContent;
+  if (!ruleContent) {
+    const sourcePath = resolveOperationSourcePath(repoRoot, operation);
+    if (sourcePath && fs.existsSync(sourcePath)) {
+      ruleContent = fs.readFileSync(sourcePath, 'utf8');
+    }
+  }
+  const nextContent = nextMemoryRuleContent(existingContent, { ...operation, ruleContent });
+  if (nextContent !== null && nextContent !== existingContent) {
+    return inspectResult('drifted', operation, destinationPath);
+  }
+  return inspectResult('ok', operation, destinationPath);
+}
+
 // Judged by structure, never by bytes: propagation fills the file after the
 // install, and a byte comparison would report drift forever and let a
 // repair wipe the projected memory.
@@ -799,6 +850,10 @@ function inspectManagedOperation(repoRoot, operation) {
 
   if (operation.kind === MERGE_MARKDOWN_INDEX_KIND) {
     return inspectWarpAgentsIndexOperation(operation, destinationPath);
+  }
+
+  if (operation.kind === MERGE_MARKDOWN_MEMORY_RULE_KIND) {
+    return inspectWarpAgentsMemoryRuleOperation(repoRoot, operation, destinationPath);
   }
 
   if (operation.kind === GENERATE_CONTEXT_FILE_KIND) {

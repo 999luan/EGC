@@ -1,12 +1,16 @@
 'use strict';
 
 const MERGE_MARKDOWN_INDEX_KIND = 'merge-markdown-skill-index';
+const MERGE_MARKDOWN_MEMORY_RULE_KIND = 'merge-markdown-memory-rule';
 
 const BLOCK_START = '<!-- egc-skills-index:start -->';
 const BLOCK_END = '<!-- egc-skills-index:end -->';
 const BLOCK_HEADING = '## EGC Skills';
 const BLOCK_INTRO = 'Skills installed by EGC for this project. Read the referenced file when a task matches its description.';
 const ENTRY_LINE_PATTERN = /^- \*\*(.+?)\*\*: (.*)$/;
+
+const MEMORY_BLOCK_START = '<!-- egc-memory:start -->';
+const MEMORY_BLOCK_END = '<!-- egc-memory:end -->';
 
 // Warp only discovers a single root-level AGENTS.md (or legacy WARP.md) as
 // project rules -- there is no per-skill file discovery like Kiro/Trae/
@@ -127,9 +131,80 @@ function nextSkillIndexContent(existingContent, operation) {
   });
 }
 
+function findMemoryBlockRange(lines) {
+  const startIndex = lines.indexOf(MEMORY_BLOCK_START);
+  if (startIndex === -1) {
+    return null;
+  }
+  const endIndex = lines.indexOf(MEMORY_BLOCK_END, startIndex + 1);
+  if (endIndex === -1) {
+    return null;
+  }
+  return { startIndex, endIndex };
+}
+
+function renderMemoryBlock(ruleContent) {
+  const trimmed = (ruleContent || '').trim();
+  const contentLines = trimmed.length > 0 ? trimmed.split('\n') : [];
+  return [MEMORY_BLOCK_START, ...contentLines, MEMORY_BLOCK_END];
+}
+
+function mergeMemoryRule(existingContent, ruleContent) {
+  const original = existingContent || '';
+  const lines = original.length > 0 ? original.split('\n') : [];
+  const range = findMemoryBlockRange(lines);
+  const blockLines = renderMemoryBlock(ruleContent);
+
+  if (range) {
+    const nextLines = [
+      ...lines.slice(0, range.startIndex),
+      ...blockLines,
+      ...lines.slice(range.endIndex + 1),
+    ];
+    return nextLines.join('\n');
+  }
+
+  const trimmedOriginal = original.replace(/\n+$/, ''); // NOSONAR: superlinear risk accepted: input is repo-owned or local state content, never network-controlled
+  const prefix = trimmedOriginal.length > 0 ? `${trimmedOriginal}\n\n` : '';
+  return `${prefix}${blockLines.join('\n')}\n`;
+}
+
+function removeMemoryRule(existingContent) {
+  if (!existingContent) {
+    return '';
+  }
+
+  const lines = existingContent.split('\n');
+  const range = findMemoryBlockRange(lines);
+  if (!range) {
+    return existingContent;
+  }
+
+  const before = lines.slice(0, range.startIndex);
+  const after = lines.slice(range.endIndex + 1);
+
+  while (before.length > 0 && before[before.length - 1] === '') {
+    before.pop();
+  }
+  const nextLines = after.length > 0 ? [...before, '', ...after] : before;
+  return nextLines.length > 0 ? `${nextLines.join('\n')}\n` : '';
+}
+
+function nextMemoryRuleContent(existingContent, operation) {
+  if (operation.removeEntry) {
+    return existingContent === null ? null : removeMemoryRule(existingContent);
+  }
+  return mergeMemoryRule(existingContent, operation.ruleContent);
+}
+
 module.exports = {
   MERGE_MARKDOWN_INDEX_KIND,
+  MERGE_MARKDOWN_MEMORY_RULE_KIND,
+  mergeMemoryRule,
   mergeSkillIndexEntry,
+  nextMemoryRuleContent,
   nextSkillIndexContent,
+  removeMemoryRule,
   removeSkillIndexEntry,
 };
+

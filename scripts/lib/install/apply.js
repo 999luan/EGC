@@ -24,6 +24,8 @@ const {
 } = require('../aider-config-merge');
 const {
   MERGE_MARKDOWN_INDEX_KIND,
+  MERGE_MARKDOWN_MEMORY_RULE_KIND,
+  nextMemoryRuleContent,
   nextSkillIndexContent,
 } = require('../warp-agents-merge');
 const { GENERATE_CONTEXT_FILE_KIND, nextGeneratedContextContent } = require('../generated-context-files');
@@ -98,6 +100,17 @@ function applyMergeMarkdownIndexOperation(operation) {
     ? fs.readFileSync(operation.destinationPath, 'utf8')
     : null;
   const nextContent = nextSkillIndexContent(existingContent, operation);
+  if (nextContent === null || nextContent === existingContent) return;
+  writeManagedText(operation.destinationPath, nextContent);
+}
+
+function applyMergeMarkdownMemoryRuleOperation(operation) {
+  const existingContent = fs.existsSync(operation.destinationPath)
+    ? fs.readFileSync(operation.destinationPath, 'utf8')
+    : null;
+  const ruleContent = operation.ruleContent
+    || (operation.sourcePath && fs.existsSync(operation.sourcePath) ? fs.readFileSync(operation.sourcePath, 'utf8') : '');
+  const nextContent = nextMemoryRuleContent(existingContent, { ...operation, ruleContent });
   if (nextContent === null || nextContent === existingContent) return;
   writeManagedText(operation.destinationPath, nextContent);
 }
@@ -1050,6 +1063,8 @@ function applyPlannedOperation(operation, disabledServers, writtenHashes) {
     applyMergeYamlReadListOperation(operation);
   } else if (operation.kind === MERGE_MARKDOWN_INDEX_KIND) {
     applyMergeMarkdownIndexOperation(operation);
+  } else if (operation.kind === MERGE_MARKDOWN_MEMORY_RULE_KIND) {
+    applyMergeMarkdownMemoryRuleOperation(operation);
   } else if (operation.kind === GENERATE_CONTEXT_FILE_KIND) {
     applyGeneratedContextOperation(operation);
   } else if (operation.kind === 'copy-file' && isMcpConfigPath(operation.destinationPath)) {

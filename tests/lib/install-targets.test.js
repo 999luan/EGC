@@ -4104,7 +4104,7 @@ function runTests() {
     assert.strictEqual(plan.operations.length, 0, 'Non-skill, non-rules module paths should not produce operations');
   }));
 
-  tally(test("warp adapter copies rules-core's memory.md and merges an index entry into AGENTS.md", () => {
+  tally(test("warp adapter merges rules-core memory rule into AGENTS.md directly (#1841)", () => {
     const repoRoot = path.join(__dirname, '..', '..');
     const projectRoot = '/workspace/app';
 
@@ -4115,14 +4115,71 @@ function runTests() {
       modules: [{ id: 'rules-core', paths: ['rules'] }],
     });
 
-    assert.strictEqual(plan.operations.length, 2, 'should emit a copy operation and an AGENTS.md merge operation');
-    const copyOp = plan.operations.find(o => o.strategy === 'preserve-relative-path');
-    const mergeOp = plan.operations.find(o => o.kind === 'merge-markdown-skill-index');
-    assert.ok(copyOp, 'must emit a copy operation for memory.md');
-    assert.strictEqual(copyOp.destinationPath, path.join(projectRoot, '.warp', 'rules', 'common', 'memory.md'));
-    assert.ok(mergeOp, 'must emit a merge-markdown-skill-index operation');
+    assert.strictEqual(plan.operations.length, 1, 'should emit a single AGENTS.md memory rule merge operation');
+    const mergeOp = plan.operations[0];
+    assert.strictEqual(mergeOp.kind, 'merge-markdown-memory-rule');
+    assert.strictEqual(mergeOp.strategy, 'merge-markdown-memory-rule');
     assert.strictEqual(mergeOp.destinationPath, path.join(projectRoot, 'AGENTS.md'));
-    assert.strictEqual(mergeOp.skillName, 'EGC Session Memory');
+    assert.strictEqual(mergeOp.sourceRelativePath, 'rules/common/memory.md');
+    assert.ok(mergeOp.ruleContent.includes('get_state'));
+    assert.ok(!plan.operations.some(o => o.destinationPath.includes(path.join('.warp', 'rules'))), 'must not emit operations writing to .warp/rules');
+  }));
+
+  tally(test('warp adapter plans retirement of legacy .warp/rules and cleans up legacy skill-index entry (#1841)', () => {
+    const fs = require('fs');
+    const repoRoot = path.join(__dirname, '..', '..');
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'warp-retire-test-'));
+
+    try {
+      const warpDir = path.join(projectRoot, '.warp');
+      fs.mkdirSync(warpDir, { recursive: true });
+      const installStatePath = path.join(warpDir, 'egc-install-state.json');
+
+      const previousState = {
+        schemaVersion: 'egc.install.v1',
+        installedAt: new Date().toISOString(),
+        target: { id: 'warp-project', target: 'warp', kind: 'project', root: warpDir, installStatePath },
+        request: { profile: null, modules: [], includeComponents: [], excludeComponents: [], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['rules-core'], skippedModules: [] },
+        source: { repoVersion: null, repoCommit: null, manifestVersion: 1 },
+        operations: [
+          {
+            kind: 'copy-file',
+            moduleId: 'rules-core',
+            destinationPath: path.join(warpDir, 'rules', 'common', 'memory.md'),
+            sourceRelativePath: 'rules/common/memory.md',
+            strategy: 'preserve-relative-path',
+            ownership: 'managed',
+            scaffoldOnly: false,
+          },
+          {
+            kind: 'merge-markdown-skill-index',
+            moduleId: 'rules-core',
+            sourceRelativePath: 'rules/common/memory.md',
+            destinationPath: path.join(projectRoot, 'AGENTS.md'),
+            strategy: 'merge-markdown-skill-index',
+            ownership: 'managed',
+            scaffoldOnly: false,
+            skillName: 'EGC Session Memory',
+          },
+        ],
+      };
+      fs.writeFileSync(installStatePath, JSON.stringify(previousState, null, 2));
+
+      const plan = planInstallTargetScaffold({
+        target: 'warp',
+        repoRoot,
+        projectRoot,
+        modules: [{ id: 'rules-core', paths: ['rules'] }],
+      });
+
+      assert.ok(plan.retirements.some(r => r.destinationPath === path.join(warpDir, 'rules', 'common', 'memory.md')), 'should retire legacy .warp/rules/common/memory.md');
+      const cleanupIndex = plan.operations.find(o => o.kind === 'merge-markdown-skill-index' && o.removeEntry);
+      assert.ok(cleanupIndex, 'should emit cleanup operation for legacy EGC Session Memory skill-index entry');
+      assert.strictEqual(cleanupIndex.skillName, 'EGC Session Memory');
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
   }));
 
   tally(test('warp adapter is included in the full adapter list', () => {

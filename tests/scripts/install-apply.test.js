@@ -1423,7 +1423,7 @@ function runTests() {
     }
   }));
 
-  tally(test('installs Warp memory protocol via rules-core and writes valid install-state', () => {
+  tally(test('installs Warp memory protocol directly into AGENTS.md, does not create .warp/rules, and writes valid install-state (#1841)', () => {
     const homeDir = createTempDir('install-apply-home-');
     const projectDir = createTempDir('install-apply-project-');
 
@@ -1431,20 +1431,83 @@ function runTests() {
       const result = run(['--target', 'warp', '--modules', 'rules-core'], { cwd: projectDir, homeDir });
       assert.strictEqual(result.code, 0, result.stderr);
 
-      const memoryPath = path.join(projectDir, '.warp', 'rules', 'common', 'memory.md');
-      assert.ok(fs.existsSync(memoryPath), 'memory.md should be copied into .warp/rules/common/');
-      assert.ok(fs.readFileSync(memoryPath, 'utf8').includes('get_state'));
+      const rulesDir = path.join(projectDir, '.warp', 'rules');
+      assert.ok(!fs.existsSync(rulesDir), '.warp/rules should not be created');
 
       const agentsPath = path.join(projectDir, 'AGENTS.md');
       assert.ok(fs.existsSync(agentsPath), 'AGENTS.md should be created');
       const agentsContent = fs.readFileSync(agentsPath, 'utf8');
-      assert.ok(agentsContent.includes('EGC Session Memory'));
-      assert.ok(agentsContent.includes('.warp/rules/common/memory.md'));
+      assert.ok(agentsContent.includes('<!-- egc-memory:start -->'));
+      assert.ok(agentsContent.includes('<!-- egc-memory:end -->'));
+      assert.ok(agentsContent.includes('get_state'));
+      assert.ok(agentsContent.includes('update_state'));
+      assert.ok(!agentsContent.includes('EGC Session Memory'), 'should not index memory rule as a skill');
 
-      // Same install-state schema regression guard as the Aider test above.
       const statePath = path.join(projectDir, '.warp', 'egc-install-state.json');
       const state = readJson(statePath);
-      assert.ok(state.operations.some(op => op.kind === 'merge-markdown-skill-index' && op.sourceRelativePath));
+      assert.ok(state.operations.some(op => op.kind === 'merge-markdown-memory-rule' && op.sourceRelativePath));
+    } finally {
+      cleanup(homeDir);
+      cleanup(projectDir);
+    }
+  }));
+
+  tally(test('Warp install retires legacy .warp/rules/common/memory.md and cleans up legacy skill-index entry (#1841)', () => {
+    const homeDir = createTempDir('install-apply-home-');
+    const projectDir = createTempDir('install-apply-project-');
+
+    try {
+      const legacyRulesDir = path.join(projectDir, '.warp', 'rules', 'common');
+      fs.mkdirSync(legacyRulesDir, { recursive: true });
+      const repoMemoryPath = path.join(__dirname, '..', '..', 'rules', 'common', 'memory.md');
+      fs.writeFileSync(path.join(legacyRulesDir, 'memory.md'), fs.readFileSync(repoMemoryPath));
+
+      const agentsPath = path.join(projectDir, 'AGENTS.md');
+      fs.writeFileSync(
+        agentsPath,
+        '# Project Rules\n\n<!-- egc-skills-index:start -->\n- **EGC Session Memory**: EGC cross-session memory protocol (`.warp/rules/common/memory.md`)\n<!-- egc-skills-index:end -->\n'
+      );
+
+      const statePath = path.join(projectDir, '.warp', 'egc-install-state.json');
+      const legacyState = {
+        schemaVersion: 'egc.install.v1',
+        installedAt: new Date().toISOString(),
+        target: { id: 'warp-project', target: 'warp', kind: 'project', root: path.join(projectDir, '.warp'), installStatePath: statePath },
+        request: { profile: null, modules: [], includeComponents: [], excludeComponents: [], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['rules-core'], skippedModules: [] },
+        source: { repoVersion: null, repoCommit: null, manifestVersion: 1 },
+        operations: [
+          {
+            kind: 'copy-file',
+            moduleId: 'rules-core',
+            destinationPath: path.join(projectDir, '.warp', 'rules', 'common', 'memory.md'),
+            sourceRelativePath: 'rules/common/memory.md',
+            strategy: 'preserve-relative-path',
+            ownership: 'managed',
+            scaffoldOnly: false,
+          },
+          {
+            kind: 'merge-markdown-skill-index',
+            moduleId: 'rules-core',
+            sourceRelativePath: 'rules/common/memory.md',
+            destinationPath: agentsPath,
+            strategy: 'merge-markdown-skill-index',
+            ownership: 'managed',
+            scaffoldOnly: false,
+            skillName: 'EGC Session Memory',
+          },
+        ],
+      };
+      fs.writeFileSync(statePath, JSON.stringify(legacyState, null, 2));
+
+      const result = run(['--target', 'warp', '--modules', 'rules-core'], { cwd: projectDir, homeDir });
+      assert.strictEqual(result.code, 0, result.stderr);
+
+      assert.ok(!fs.existsSync(path.join(projectDir, '.warp', 'rules')), 'legacy .warp/rules should be retired and cleaned up');
+      const updatedAgents = fs.readFileSync(agentsPath, 'utf8');
+      assert.ok(!updatedAgents.includes('EGC Session Memory'), 'legacy skill index entry should be cleaned up');
+      assert.ok(updatedAgents.includes('<!-- egc-memory:start -->'), 'memory rule block should be merged');
+      assert.ok(updatedAgents.includes('# Project Rules'), 'existing user rules preserved');
     } finally {
       cleanup(homeDir);
       cleanup(projectDir);

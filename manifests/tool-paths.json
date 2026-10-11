@@ -1475,14 +1475,6 @@
     },
     {
       "adapter": "warp-project",
-      "surface": "rules",
-      "path": "<project>/.warp/rules/",
-      "status": "unverified",
-      "source": "https://docs.warp.dev/agent-platform/warp-agents/rules",
-      "note": "Warp reads AGENTS.md (and WARP.md) as rules; its docs do not name a .warp/rules directory (read on 2026-10-10)."
-    },
-    {
-      "adapter": "warp-project",
       "surface": "skills",
       "path": "<project>/.warp/skills/",
       "status": "documented",
