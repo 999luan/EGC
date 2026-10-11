@@ -1848,6 +1848,43 @@ function runTests() {
     );
   }));
 
+  tally(test('codex adapter plans AGENTS.md under ~/.codex/AGENTS.md and includes ~/.codex in managed roots (#1839)', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const homeDir = '/Users/example';
+
+    const plan = planInstallTargetScaffold({
+      target: 'codex',
+      repoRoot,
+      homeDir,
+      modules: [
+        {
+          id: 'agents-core',
+          paths: ['AGENTS.md'],
+        },
+      ],
+    });
+
+    assert.ok(
+      plan.operations.some(op => (
+        op.sourceRelativePath === 'AGENTS.md'
+        && op.destinationPath === path.join(homeDir, '.codex', 'AGENTS.md')
+      )),
+      'Should plan AGENTS.md under ~/.codex/AGENTS.md'
+    );
+    assert.ok(
+      !plan.operations.some(op => (
+        op.destinationPath === path.join(homeDir, '.agents', 'AGENTS.md')
+      )),
+      'Should not plan AGENTS.md under ~/.agents/AGENTS.md'
+    );
+    const adapter = getInstallTargetAdapter('codex');
+    assert.deepStrictEqual(
+      adapter.resolveManagedRoots({ homeDir }, adapter),
+      [path.join(homeDir, '.agents'), path.join(homeDir, '.codex')],
+      'managed roots should include ~/.agents and ~/.codex'
+    );
+  }));
+
   tally(test('resolves opencode adapter root to ~/.config/opencode and install-state path', () => {
     const adapter = getInstallTargetAdapter('opencode');
     const homeDir = '/Users/example';

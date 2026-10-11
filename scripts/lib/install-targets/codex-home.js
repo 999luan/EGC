@@ -46,7 +46,8 @@ const {
 // shell environment instead of its explicit input, which breaks test
 // hermeticity and risks writing to a real ~/.codex during a hermetic test run.
 function resolveCodexHome(input) {
-  return path.join(input.homeDir || os.homedir(), '.codex');
+  const home = typeof input === 'string' ? input : input?.homeDir;
+  return path.join(home || os.homedir(), '.codex');
 }
 
 function buildCodexPreToolUseMergeOperation(codexHome, moduleId, sourceRelativePath, hookScriptPath, matcher) {
@@ -179,16 +180,30 @@ module.exports = createInstallTargetAdapter({
   rootSegments: ['.agents'],
   installStatePathSegments: ['egc', 'codex-install-state.json'],
   nativeRootRelativePath: '.agents',
+  resolveManagedRoots(input, adapter) {
+    return [adapter.resolveRoot(input), resolveCodexHome(input)];
+  },
   planOperations(input, adapter) {
     const { modules, planningInput, targetRoot } = resolveModulesPlan(input, adapter);
+    const codexHome = resolveCodexHome(planningInput);
 
     const moduleOperations = modules.flatMap(module => {
       const paths = (Array.isArray(module.paths) ? module.paths : [])
         .filter(p => !isForeignPlatformPath(p, adapter.target));
-      return paths.map(sourceRelativePath => planFlatSkillOperation(adapter, module.id, sourceRelativePath, planningInput, targetRoot));
+      return paths.map(sourceRelativePath => {
+        if (sourceRelativePath === 'AGENTS.md') {
+          return createRemappedOperation(
+            adapter,
+            module.id,
+            sourceRelativePath,
+            path.join(codexHome, 'AGENTS.md'),
+            { strategy: 'preserve-relative-path' }
+          );
+        }
+        return planFlatSkillOperation(adapter, module.id, sourceRelativePath, planningInput, targetRoot);
+      });
     });
 
-    const codexHome = resolveCodexHome(planningInput);
     return [
       ...moduleOperations,
       ...createCodexGateGuardOperations(adapter, codexHome),
