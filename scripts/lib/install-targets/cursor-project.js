@@ -31,6 +31,15 @@ const {
   CRUSHER_HOOK_DISPATCH_EVENT,
   resolveCrusherAdapterScriptDestination,
 } = require('../cursor-crusher-hooks');
+const {
+  dropCommandsShadowedBySkills,
+  isCommandSource,
+  planAntigravityCommandFiles,
+} = require('../antigravity-commands');
+const {
+  planAntigravityCopyOperations,
+  readRecordedDestinations,
+} = require('../antigravity-rules');
 
 // Shared by createCursorGuardianOperations and createCursorCrusherOperations
 // below: hooks-runtime already scaffolds the whole scripts/hooks and
@@ -290,6 +299,24 @@ function planMcpConfigsOperations({
   return takeUniqueOperations(operations);
 }
 
+function planCommandsOperations({
+  adapter,
+  module,
+  repoRoot,
+  sourceRelativePath,
+  targetRoot,
+  recordedDestinations,
+}) {
+  return planAntigravityCopyOperations({
+    adapter,
+    moduleId: module.id,
+    files: planAntigravityCommandFiles(repoRoot, sourceRelativePath),
+    destinationDir: path.join(targetRoot, 'skills'),
+    repoRoot: repoRoot || '',
+    recordedDestinations,
+  });
+}
+
 function planDefaultOperations({ module, sourceRelativePath, planningInput, adapter, takeUniqueOperations }) {
   return takeUniqueOperations([
     adapter.createScaffoldOperation(module.id, sourceRelativePath, planningInput),
@@ -317,6 +344,7 @@ module.exports = createInstallTargetAdapter({
       homeDir,
     };
     const targetRoot = adapter.resolveRoot(planningInput);
+    const recordedDestinations = readRecordedDestinations(adapter.getInstallStatePath(planningInput));
     const entries = modules.flatMap((module, moduleIndex) => {
       const paths = Array.isArray(module.paths) ? module.paths : [];
       return paths
@@ -337,7 +365,15 @@ module.exports = createInstallTargetAdapter({
           return 1;
         }
 
-        return 2;
+        if (value === 'skills' || value.startsWith('skills/')) {
+          return 2;
+        }
+
+        if (isCommandSource(value)) {
+          return 3;
+        }
+
+        return 4;
       };
 
       const leftPriority = getPriority(left.sourceRelativePath);
@@ -370,9 +406,9 @@ module.exports = createInstallTargetAdapter({
 
     // EGC-539 audit (Finding 9): dispatches each module path to its own
     // planXOperations helper above instead of inlining all six branches'
-    // logic here -- same operations, same order, same dedup as before, just
+    // logic here - same operations, same order, same dedup as before, just
     // no longer all flattened into one ~150-line closure.
-    return [...entries.flatMap(({ module, sourceRelativePath }) => {
+    const moduleOperations = entries.flatMap(({ module, sourceRelativePath }) => {
       const cursorMcpOperation = createJsonMergeOperation({
         moduleId: module.id,
         repoRoot,
@@ -402,8 +438,24 @@ module.exports = createInstallTargetAdapter({
         });
       }
 
+      if (isCommandSource(sourceRelativePath)) {
+        return planCommandsOperations({
+          adapter,
+          module,
+          repoRoot,
+          sourceRelativePath,
+          targetRoot,
+          recordedDestinations,
+        });
+      }
+
       return planDefaultOperations({ module, sourceRelativePath, planningInput, adapter, takeUniqueOperations });
-    }), ...createCursorGuardianOperations(adapter, targetRoot, modules, repoRoot),
-    ...createCursorCrusherOperations(adapter, targetRoot, modules)];
+    });
+
+    return [
+      ...dropCommandsShadowedBySkills(moduleOperations),
+      ...createCursorGuardianOperations(adapter, targetRoot, modules, repoRoot),
+      ...createCursorCrusherOperations(adapter, targetRoot, modules),
+    ];
   },
 });

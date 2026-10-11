@@ -206,12 +206,15 @@ function runTests() {
     const cases = selections.flatMap(modules => [
       ['egc', path.join(homeDir, '.gemini', 'config', 'skills'), modules],
       ['antigravity', path.join(projectRoot, '.agents', 'skills'), modules],
+      ['cursor', path.join(projectRoot, '.cursor', 'skills'), modules],
     ]);
     for (const [target, skillsRoot, modules] of cases) {
       const plan = planInstallTargetScaffold({ target, repoRoot, homeDir, projectRoot, modules });
       const shadowed = plan.operations.filter(operation => (
         operation.destinationPath === path.join(skillsRoot, 'security-scan')
         || operation.destinationPath.startsWith(path.join(skillsRoot, 'security-scan') + path.sep)
+        || operation.destinationPath === path.join(skillsRoot, 'security', 'security-scan')
+        || operation.destinationPath.startsWith(path.join(skillsRoot, 'security', 'security-scan') + path.sep)
       ));
       assert.deepStrictEqual(shadowed.map(operation => normalizedRelativePath(operation.sourceRelativePath)), [modules[1].paths[0]], `${target}: the skill answers /security-scan, the command is not written over it (${modules[1].paths[0]})`);
       assert.ok(plan.operations.some(operation => operation.destinationPath === path.join(skillsRoot, 'plan', 'SKILL.md')), `${target}: the other commands are planned`);
@@ -225,7 +228,7 @@ function runTests() {
       fs.mkdirSync(path.join(repoRoot, 'commands', 'foo'), { recursive: true });
       fs.writeFileSync(path.join(repoRoot, 'commands', 'foo', 'bar.md'), '---\ndescription: a\n---\n');
       fs.writeFileSync(path.join(repoRoot, 'commands', 'foo-bar.md'), '---\ndescription: b\n---\n');
-      for (const target of ['egc', 'antigravity']) {
+      for (const target of ['egc', 'antigravity', 'cursor']) {
         assert.throws(() => planInstallTargetScaffold({
           target,
           repoRoot,
@@ -240,6 +243,38 @@ function runTests() {
     } finally {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }
+  }));
+
+  tally(test('cursor target installs commands as skills in .cursor/skills/<name>/SKILL.md (#1837)', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const projectRoot = '/workspace/app';
+
+    const plan = planInstallTargetScaffold({
+      target: 'cursor',
+      repoRoot,
+      projectRoot,
+      modules: [{ id: 'commands-core', paths: ['commands'] }],
+    });
+
+    const commandOps = plan.operations.filter(op =>
+      op.sourceRelativePath && op.sourceRelativePath.startsWith('commands/')
+    );
+    assert.ok(commandOps.length > 50, 'commands are planned');
+    for (const op of commandOps) {
+      assert.strictEqual(op.transform, 'antigravity-command-skill');
+      assert.ok(
+        op.destinationPath.startsWith(path.join(projectRoot, '.cursor', 'skills') + path.sep),
+        `command ${op.sourceRelativePath} should land under .cursor/skills/ but landed at ${op.destinationPath}`
+      );
+      assert.ok(
+        op.destinationPath.endsWith('SKILL.md'),
+        `command ${op.sourceRelativePath} should be named SKILL.md`
+      );
+    }
+    assert.ok(
+      !plan.operations.some(op => op.destinationPath.includes(path.join('.cursor', 'commands'))),
+      'no operations target .cursor/commands'
+    );
   }));
 
   tally(test('the egc target plans nothing that only the retired Gemini CLI read', () => {

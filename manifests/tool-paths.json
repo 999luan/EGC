@@ -196,14 +196,6 @@
     },
     {
       "adapter": "cursor-project",
-      "surface": "commands",
-      "path": "<project>/.cursor/commands/",
-      "status": "unverified",
-      "source": "https://cursor.com/docs/context/skills",
-      "note": "Cursor's current docs no longer describe custom commands in .cursor/commands; the skills page talks about moving commands to skills (read on 2026-10-10)."
-    },
-    {
-      "adapter": "cursor-project",
       "surface": "runtime",
       "path": "<project>/.cursor/hooks/",
       "status": "egc",

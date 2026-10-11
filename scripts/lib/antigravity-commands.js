@@ -53,9 +53,14 @@ function dropCommandsShadowedBySkills(operations) {
   const skillDestinations = operations
     .filter(operation => normalizeSourcePath(operation.sourceRelativePath).startsWith('skills/'))
     .map(operation => path.resolve(operation.destinationPath));
-  const isShadowed = directory => skillDestinations.some(destination => (
-    destination === directory || destination.startsWith(directory + path.sep)
-  ));
+  const isShadowed = directory => {
+    const commandName = path.basename(directory);
+    return skillDestinations.some(destination => (
+      destination === directory
+      || destination.startsWith(directory + path.sep)
+      || destination.split(path.sep).includes(commandName)
+    ));
+  };
   return operations.filter(operation => !(
     operation.transform === ANTIGRAVITY_COMMAND_SKILL_TRANSFORM
     && isShadowed(path.resolve(path.dirname(operation.destinationPath)))

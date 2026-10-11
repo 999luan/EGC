@@ -1354,7 +1354,8 @@ function runTests() {
       assert.ok(!fs.existsSync(path.join(projectDir, '.cursor', 'rules', 'README.mdc')));
       assert.ok(fs.existsSync(path.join(projectDir, '.cursor', 'agents', 'egc-architect.md')));
       assert.ok(!fs.existsSync(path.join(projectDir, '.cursor', 'agents', 'architect.md')));
-      assert.ok(fs.existsSync(path.join(projectDir, '.cursor', 'commands', 'plan.md')));
+      assert.ok(fs.existsSync(path.join(projectDir, '.cursor', 'skills', 'plan', 'SKILL.md')));
+      assert.ok(!fs.existsSync(path.join(projectDir, '.cursor', 'commands')));
       assert.ok(fs.existsSync(path.join(projectDir, '.cursor', 'hooks.json')));
       assert.ok(fs.existsSync(path.join(projectDir, '.cursor', 'mcp.json')));
       assert.ok(fs.existsSync(path.join(projectDir, '.cursor', 'hooks', 'session-start.js')));
@@ -1382,9 +1383,9 @@ function runTests() {
       assert.ok(state.resolution.selectedModules.includes('framework-language'));
       assert.ok(
         state.operations.some(operation => (
-          operation.destinationPath === path.join(normalizedProjectDir, '.cursor', 'commands', 'plan.md')
+          operation.destinationPath === path.join(normalizedProjectDir, '.cursor', 'skills', 'plan', 'SKILL.md')
         )),
-        'Should record manifest command file copy operation'
+        'Should record manifest command skill copy operation'
       );
     } finally {
       cleanup(homeDir);
