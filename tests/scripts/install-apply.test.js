@@ -8,6 +8,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { applyInstallPlan } = require('../../scripts/lib/install/apply');
+const { getInstallTargetAdapter } = require('../../scripts/lib/install-targets/registry');
 
 const SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'install-apply.js');
 const { FULL_INSTALL_TIMEOUT_MS, CLI_TIMEOUT_MS } = require('../fixtures/subprocess-timeouts');
@@ -32,6 +33,7 @@ function run(args = [], options = {}) {
     ...process.env,
     HOME: homeDir,
     USERPROFILE: homeDir,
+    ...(options.homeDir && process.platform === 'win32' ? { APPDATA: path.join(options.homeDir, 'AppData', 'Roaming') } : {}),
     ...(options.env || {}),
   };
 
@@ -814,9 +816,10 @@ function runTests() {
       assert.strictEqual(first.code, 0, first.stderr);
 
       const sharedSkills = path.join(homeDir, '.agents', 'skills');
-      const zedSkills = path.join(homeDir, '.config', 'zed', 'skills');
-      const statePath = path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json');
-      assert.ok(!fs.existsSync(zedSkills), 'a fresh install writes nothing under ~/.config/zed/skills');
+      const zedAdapter = getInstallTargetAdapter('zed');
+      const zedSkills = path.join(zedAdapter.resolveRoot({ homeDir }), 'skills');
+      const statePath = zedAdapter.getInstallStatePath({ homeDir });
+      assert.ok(!fs.existsSync(zedSkills), 'a fresh install writes nothing under zed skills');
       const state = readJson(statePath);
       const moved = [];
       for (const operation of state.operations) {
@@ -867,7 +870,7 @@ function runTests() {
         assert.strictEqual(result.code, 0, `${target}: ${result.stderr}`);
       }
       const shared = path.join(homeDir, '.agents', 'skills', 'tdd-workflow', 'SKILL.md');
-      const zedState = path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json');
+      const zedState = getInstallTargetAdapter('zed').getInstallStatePath({ homeDir });
       const codexRecorded = readJson(path.join(homeDir, '.agents', 'egc', 'codex-install-state.json')).operations.map(operation => operation.destinationPath);
       assert.ok(codexRecorded.includes(shared), 'codex records the shared skill');
       assert.ok(readJson(zedState).operations.some(operation => operation.destinationPath === shared), 'zed records it too');
@@ -1645,6 +1648,68 @@ function runTests() {
     } finally {
       cleanup(homeDir);
       cleanup(ownHome);
+      cleanup(projectDir);
+    }
+  }));
+
+  tally(test('codebuddy puts the agent catalog in .codebuddy/rules, retires the .codebuddy/AGENTS.md an earlier install generated, and leaves a file of the person\'s own alone (#1840)', () => {
+    const { generatedContextTemplate } = require('../../scripts/lib/generated-context-files');
+    const catalog = generatedContextTemplate('AGENTS.md');
+    const homeDir = createTempDir('install-apply-home-');
+    const projectDir = fs.realpathSync(createTempDir('install-apply-project-'));
+    const ownProject = fs.realpathSync(createTempDir('install-apply-project-'));
+    const sha256 = text => require('crypto').createHash('sha256').update(text, 'utf8').digest('hex');
+    const writePreviousState = (codebuddyDir, oldCopy, recordedSha256) => {
+      const statePath = path.join(codebuddyDir, 'egc-install-state.json');
+      const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+      writeInstallState(statePath, createInstallState({
+        adapter: { id: 'codebuddy-project' },
+        targetRoot: codebuddyDir,
+        installStatePath: statePath,
+        request: { profile: null, modules: ['agents-core'], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['agents-core'], skippedModules: [] },
+        operations: [{ kind: 'generate-context-file', moduleId: 'agents-core', sourceRelativePath: 'AGENTS.md', destinationPath: oldCopy, strategy: 'generate-context-file', ownership: 'managed', scaffoldOnly: false, ...(recordedSha256 ? { contentSha256: recordedSha256 } : {}) }],
+        source: { repoVersion: require('../../package.json').version, repoCommit: 'abc123', manifestVersion: 1 },
+      }));
+    };
+    const install = cwd => run(['--target', 'codebuddy', '--modules', 'agents-core', '--allow-undetected'], { cwd, homeDir, env: { EGC_INSTALL_DELEGATED: '1' } });
+    try {
+      const codebuddyDir = path.join(projectDir, '.codebuddy');
+      const oldCopy = path.join(codebuddyDir, 'AGENTS.md');
+      fs.mkdirSync(codebuddyDir, { recursive: true });
+      fs.writeFileSync(oldCopy, catalog);
+      writePreviousState(codebuddyDir, oldCopy);
+
+      const applied = install(projectDir);
+      assert.strictEqual(applied.code, 0, applied.stderr);
+      assert.ok(!fs.existsSync(oldCopy), 'the copy CodeBuddy never read is retired');
+      assert.strictEqual(fs.readFileSync(path.join(codebuddyDir, 'rules', 'egc-agents.md'), 'utf8'), catalog, 'the catalog lands where CodeBuddy loads project memory');
+      const recorded = JSON.parse(fs.readFileSync(path.join(codebuddyDir, 'egc-install-state.json'), 'utf8')).operations
+        .find(operation => operation.destinationPath === path.join(codebuddyDir, 'rules', 'egc-agents.md'));
+      assert.strictEqual(recorded.contentSha256, sha256(catalog), 'the state records the hash of the catalog EGC wrote');
+
+      fs.writeFileSync(oldCopy, 'An older catalog EGC wrote.\n');
+      writePreviousState(codebuddyDir, oldCopy, sha256('An older catalog EGC wrote.\n'));
+      const older = install(projectDir);
+      assert.strictEqual(older.code, 0, older.stderr);
+      assert.ok(!fs.existsSync(oldCopy), 'a copy written from an older template goes too, by the hash recorded when it was written');
+
+      fs.writeFileSync(oldCopy, 'edited by hand after EGC wrote it\n');
+      writePreviousState(codebuddyDir, oldCopy);
+      const edited = install(projectDir);
+      assert.strictEqual(edited.code, 0, edited.stderr);
+      assert.strictEqual(fs.readFileSync(oldCopy, 'utf8'), 'edited by hand after EGC wrote it\n', 'an old copy the person edited is kept');
+
+      const ownFile = path.join(ownProject, '.codebuddy', 'rules', 'egc-agents.md');
+      fs.mkdirSync(path.dirname(ownFile), { recursive: true });
+      fs.writeFileSync(ownFile, 'My own CodeBuddy rule.\n');
+      const ownRun = install(ownProject);
+      assert.strictEqual(ownRun.code, 0, ownRun.stderr);
+      assert.strictEqual(fs.readFileSync(ownFile, 'utf8'), 'My own CodeBuddy rule.\n', 'a file of the person\'s own is never overwritten');
+      assert.ok(!fs.existsSync(path.join(ownProject, '.codebuddy', 'AGENTS.md')), 'and no copy goes back to .codebuddy/AGENTS.md');
+    } finally {
+      cleanup(homeDir);
+      cleanup(ownProject);
       cleanup(projectDir);
     }
   }));

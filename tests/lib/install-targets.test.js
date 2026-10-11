@@ -2398,17 +2398,49 @@ function runTests() {
     assert.ok(targets.includes('copilot'), 'Should include copilot target');
   }));
 
-  tally(test('resolves zed home adapter root to ~/.config/zed and install-state path', () => {
+  tally(test('resolves zed home adapter root to ~/.config/zed on Linux/macOS and %APPDATA%\\Zed on Windows (#1843)', () => {
     const adapter = getInstallTargetAdapter('zed');
     const homeDir = '/Users/example';
-    const root = adapter.resolveRoot({ homeDir });
-    const statePath = adapter.getInstallStatePath({ homeDir });
 
     assert.strictEqual(adapter.id, 'zed-home');
     assert.strictEqual(adapter.target, 'zed');
     assert.strictEqual(adapter.kind, 'home');
-    assert.strictEqual(root, path.join(homeDir, '.config', 'zed'));
-    assert.strictEqual(statePath, path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json'));
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir, platform: 'linux' }),
+      path.join(homeDir, '.config', 'zed')
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir, platform: 'darwin' }),
+      path.join(homeDir, '.config', 'zed'),
+      'macOS uses ~/.config too'
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir, platform: 'win32' }),
+      path.join(homeDir, 'AppData', 'Roaming', 'Zed')
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir: os.homedir(), platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
+      path.join('R:', 'Roaming', 'Zed'),
+      'the real home follows %APPDATA%'
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir: os.homedir().toUpperCase(), platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
+      path.join('R:', 'Roaming', 'Zed'),
+      'the real home compared case-insensitively follows %APPDATA%'
+    );
+    assert.strictEqual(
+      adapter.resolveRoot({ homeDir: '/sandbox/home', platform: 'win32', env: { APPDATA: path.join('R:', 'Roaming') } }),
+      path.join('/sandbox/home', 'AppData', 'Roaming', 'Zed'),
+      'a home other than the real one never writes into the real %APPDATA%'
+    );
+    assert.strictEqual(
+      adapter.getInstallStatePath({ homeDir, platform: 'linux' }),
+      path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json')
+    );
+    assert.strictEqual(
+      adapter.getInstallStatePath({ homeDir, platform: 'win32' }),
+      path.join(homeDir, 'AppData', 'Roaming', 'Zed', 'egc', 'install-state.json')
+    );
   }));
 
   tally(test('zed adapter supports lookup by target and adapter id', () => {
@@ -2432,9 +2464,13 @@ function runTests() {
       modules: [{ id: 'workflow', paths: ['skills/workflow/tdd-workflow'] }],
     });
 
+    const expectedRoot = process.platform === 'win32'
+      ? path.join(homeDir, 'AppData', 'Roaming', 'Zed')
+      : path.join(homeDir, '.config', 'zed');
+
     assert.strictEqual(plan.adapter.id, 'zed-home');
-    assert.strictEqual(plan.targetRoot, path.join(homeDir, '.config', 'zed'));
-    assert.strictEqual(plan.installStatePath, path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json'));
+    assert.strictEqual(plan.targetRoot, expectedRoot);
+    assert.strictEqual(plan.installStatePath, path.join(expectedRoot, 'egc', 'install-state.json'));
     assert.ok(
       plan.operations.some(op =>
         normalizedRelativePath(op.sourceRelativePath) === 'skills/workflow/tdd-workflow'
@@ -2442,12 +2478,158 @@ function runTests() {
       ),
       'Should strip category and install skill flat under ~/.agents/skills/, the only global directory Zed reads'
     );
-    assert.ok(!plan.operations.some(op => op.destinationPath.startsWith(path.join(homeDir, '.config', 'zed', 'skills'))), 'nothing is planned under ~/.config/zed/skills');
+    assert.ok(!plan.operations.some(op => op.destinationPath.startsWith(path.join(expectedRoot, 'skills'))), 'nothing is planned under <targetRoot>/skills');
     const adapter = getInstallTargetAdapter('zed');
+    const expectedManagedRoots = process.platform === 'win32'
+      ? [expectedRoot, path.join(homeDir, '.agents'), path.join(homeDir, '.config', 'zed')]
+      : [expectedRoot, path.join(homeDir, '.agents')];
     assert.deepStrictEqual(
       adapter.resolveManagedRoots({ homeDir }, adapter),
-      [path.join(homeDir, '.config', 'zed'), path.join(homeDir, '.agents')],
-      'the shared ~/.agents root is managed, so retirement and uninstall reach it and see the siblings that share it'
+      expectedManagedRoots,
+      'the shared ~/.agents root is managed, and on Windows ~/.config/zed is kept as a legacy managed root'
+    );
+  }));
+
+  tally(test('zed adapter on Windows resolves legacy install state under ~/.config/zed (#1843)', () => {
+    const fs = require('fs');
+    const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+    const adapter = getInstallTargetAdapter('zed');
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'egc-zed-legacy-state-'));
+    try {
+      const legacyRoot = path.join(homeDir, '.config', 'zed');
+      const legacyStatePath = path.join(legacyRoot, 'egc', 'install-state.json');
+
+      assert.deepStrictEqual(
+        adapter.resolveLegacyInstallStatePaths({ homeDir, platform: 'win32' }, adapter),
+        [],
+        'no legacy state when ~/.config/zed/egc/install-state.json does not exist'
+      );
+      assert.deepStrictEqual(
+        adapter.resolveLegacyInstallStatePaths({ homeDir, platform: 'linux' }, adapter),
+        [],
+        'no legacy state on non-Windows'
+      );
+
+      fs.mkdirSync(path.join(legacyRoot, 'egc'), { recursive: true });
+      writeInstallState(legacyStatePath, createInstallState({
+        request: { profile: 'developer', modules: [], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: [], skippedModules: [] },
+        source: { repoVersion: require('../../package.json').version, repoCommit: 'abc123', manifestVersion: 1 },
+        adapter: { id: 'zed-home', target: 'zed', kind: 'home' },
+        targetRoot: legacyRoot,
+        installStatePath: legacyStatePath,
+        operations: [],
+      }));
+
+      assert.deepStrictEqual(
+        adapter.resolveLegacyInstallStatePaths({ homeDir, platform: 'win32' }, adapter),
+        [legacyStatePath],
+        'finds legacy state file on Windows when it exists'
+      );
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  }));
+
+  tally(test('a zed install on Windows retires what was copied under ~/.config/zed and cleans the legacy state (#1843)', () => {
+    const fs = require('fs');
+    const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+    const { applyInstallPlan } = require('../../scripts/lib/install/apply');
+    const repoRoot = path.join(__dirname, '..', '..');
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'egc-zed-upgrade-'));
+    try {
+      const source = 'skills/ai/agent-eval/SKILL.md';
+      const legacyRoot = path.join(homeDir, '.config', 'zed');
+      const legacyDestination = path.join(legacyRoot, 'skills', 'agent-eval', 'SKILL.md');
+      const legacyStatePath = path.join(legacyRoot, 'egc', 'install-state.json');
+      fs.mkdirSync(path.dirname(legacyDestination), { recursive: true });
+      fs.mkdirSync(path.dirname(legacyStatePath), { recursive: true });
+      fs.copyFileSync(path.join(repoRoot, source), legacyDestination);
+
+      const stateFields = {
+        request: { profile: 'developer', modules: [], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['skills-extended'], skippedModules: [] },
+        source: { repoVersion: require('../../package.json').version, repoCommit: 'abc123', manifestVersion: 1 },
+      };
+      writeInstallState(legacyStatePath, createInstallState({
+        ...stateFields,
+        adapter: { id: 'zed-home', target: 'zed', kind: 'home' },
+        targetRoot: legacyRoot,
+        installStatePath: legacyStatePath,
+        operations: [{
+          kind: 'copy-file',
+          moduleId: 'skills-extended',
+          sourceRelativePath: source,
+          destinationPath: legacyDestination,
+          strategy: 'preserve-relative-path',
+          ownership: 'managed',
+          scaffoldOnly: false,
+        }],
+      }));
+
+      const modules = [{ id: 'skills-extended', paths: [source] }];
+      const plan = planInstallTargetScaffold({
+        target: 'zed',
+        repoRoot,
+        homeDir,
+        platform: 'win32',
+        modules,
+      });
+
+      assert.strictEqual(plan.targetRoot, path.join(homeDir, 'AppData', 'Roaming', 'Zed'));
+      assert.ok(plan.retirements.some(entry => entry.destinationPath === legacyDestination), 'the ~/.config/zed copy is offered for retirement');
+
+      const operations = plan.operations.map(operation => ({
+        ...operation,
+        kind: 'copy-file',
+        scaffoldOnly: false,
+        sourcePath: path.join(repoRoot, operation.sourceRelativePath),
+      }));
+      const statePreview = createInstallState({
+        ...stateFields,
+        adapter: plan.adapter,
+        targetRoot: plan.targetRoot,
+        installStatePath: plan.installStatePath,
+        operations,
+      });
+
+      applyInstallPlan({ ...plan, operations, statePreview }, { homeDir });
+      assert.ok(fs.existsSync(plan.installStatePath), 'the state now lives under AppData/Roaming/Zed');
+      assert.ok(!fs.existsSync(legacyDestination), 'the legacy file under ~/.config/zed is retired');
+      assert.ok(!fs.existsSync(legacyStatePath), 'the legacy state is removed');
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  }));
+
+  tally(test('zed adapter scaffold planning forces config root per platform (#1843)', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const homeDir = '/sandbox/home';
+
+    const linuxPlan = planInstallTargetScaffold({
+      target: 'zed',
+      repoRoot,
+      homeDir,
+      platform: 'linux',
+      modules: [{ id: 'workflow', paths: ['skills/workflow/tdd-workflow'] }],
+    });
+    assert.strictEqual(linuxPlan.targetRoot, path.join(homeDir, '.config', 'zed'));
+    assert.strictEqual(linuxPlan.installStatePath, path.join(homeDir, '.config', 'zed', 'egc', 'install-state.json'));
+
+    const win32Plan = planInstallTargetScaffold({
+      target: 'zed',
+      repoRoot,
+      homeDir,
+      platform: 'win32',
+      modules: [{ id: 'workflow', paths: ['skills/workflow/tdd-workflow'] }],
+    });
+    assert.strictEqual(win32Plan.targetRoot, path.join(homeDir, 'AppData', 'Roaming', 'Zed'));
+    assert.strictEqual(win32Plan.installStatePath, path.join(homeDir, 'AppData', 'Roaming', 'Zed', 'egc', 'install-state.json'));
+    assert.ok(
+      win32Plan.operations.some(op =>
+        normalizedRelativePath(op.sourceRelativePath) === 'skills/workflow/tdd-workflow'
+        && op.destinationPath === path.join(homeDir, '.agents', 'skills', 'tdd-workflow')
+      )
     );
   }));
 
@@ -3331,6 +3513,60 @@ function runTests() {
       }
     } finally {
       fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  }));
+
+  tally(test('codebuddy plans the agent catalog at .codebuddy/rules/egc-agents.md, skips a file of the person\'s own or a link there, and updates a copy EGC recorded (#1840)', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const { generatedContextTemplate } = require('../../scripts/lib/generated-context-files');
+    const projectRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'egc-codebuddy-agents-')));
+    const agentsCore = [{ id: 'agents-core', paths: ['agents', 'AGENTS.md'] }];
+    const destination = path.join(projectRoot, '.codebuddy', 'rules', 'egc-agents.md');
+    const contextOps = plan => plan.operations.filter(operation => /(AGENTS|egc-agents)\.md$/.test(operation.destinationPath));
+    const planNow = () => contextOps(planInstallTargetScaffold({ target: 'codebuddy', repoRoot, projectRoot, modules: agentsCore }));
+    try {
+      assert.deepStrictEqual(planNow().map(operation => [operation.sourceRelativePath, operation.destinationPath]), [
+        ['AGENTS.md', destination],
+      ], 'one catalog, in the rules CodeBuddy loads, and nothing at .codebuddy/AGENTS.md');
+
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.writeFileSync(destination, generatedContextTemplate('AGENTS.md'));
+      assert.strictEqual(planNow().length, 1, 'a file identical to the catalog is still planned');
+
+      fs.writeFileSync(destination, 'My own CodeBuddy rule.\n');
+      assert.deepStrictEqual(planNow(), [], 'a file of the person\'s own is left alone');
+
+      if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+        fs.chmodSync(destination, 0o000);
+        try {
+          assert.deepStrictEqual(planNow(), [], 'a rule that cannot be read is left alone and the plan goes on');
+        } finally {
+          fs.chmodSync(destination, 0o644);
+        }
+      }
+
+      const statePath = path.join(projectRoot, '.codebuddy', 'egc-install-state.json');
+      const { createInstallState, writeInstallState } = require('../../scripts/lib/install-state');
+      writeInstallState(statePath, createInstallState({
+        adapter: { id: 'codebuddy-project' },
+        targetRoot: path.join(projectRoot, '.codebuddy'),
+        installStatePath: statePath,
+        request: { profile: null, modules: ['agents-core'], legacyLanguages: [], legacyMode: false },
+        resolution: { selectedModules: ['agents-core'], skippedModules: [] },
+        operations: [{ kind: 'generate-context-file', moduleId: 'agents-core', sourceRelativePath: 'AGENTS.md', destinationPath: destination, strategy: 'generate-context-file', ownership: 'managed', scaffoldOnly: false }],
+        source: { repoVersion: '1.0.0', repoCommit: 'abc123', manifestVersion: 1 },
+      }));
+      assert.strictEqual(planNow().length, 1, 'a file EGC recorded is still EGC\'s to update');
+
+      if (process.platform !== 'win32') {
+        fs.rmSync(destination);
+        fs.rmSync(statePath);
+        fs.writeFileSync(path.join(projectRoot, 'shared-rule.md'), 'linked\n');
+        fs.symlinkSync(path.join(projectRoot, 'shared-rule.md'), destination);
+        assert.deepStrictEqual(planNow(), [], 'a link the person made is left alone');
+      }
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
     }
   }));
 

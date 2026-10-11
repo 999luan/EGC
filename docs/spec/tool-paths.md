@@ -9,7 +9,7 @@ Status: **documented** paths are read by the tool per the linked docs; **egc** p
 | Variant | Platform | Environment | Adapters |
 | --- | --- | --- | --- |
 | default | linux | none | all |
-| win32 | win32 | none | windsurf-home |
+| win32 | win32 | none | windsurf-home, zed-home |
 | XDG_CONFIG_HOME | linux | `XDG_CONFIG_HOME` set to an absolute directory, shown as `$XDG_CONFIG_HOME` in the paths | crush-home |
 | CRUSH_GLOBAL_CONFIG | linux | `CRUSH_GLOBAL_CONFIG` set to an absolute directory, shown as `$CRUSH_GLOBAL_CONFIG` in the paths | crush-home |
 | KIMI_CODE_HOME | linux | `KIMI_CODE_HOME` set to an absolute directory, shown as `$KIMI_CODE_HOME` in the paths | kimi-home |
@@ -179,7 +179,7 @@ Status: **documented** paths are read by the tool per the linked docs; **egc** p
 | Surface | Path | Variant | Status | Source | Note |
 | --- | --- | --- | --- | --- | --- |
 | library | `<project>/.codebuddy/.agents/` | default | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
-| context | `<project>/.codebuddy/AGENTS.md` | default | unverified | <https://www.codebuddy.ai/docs/cli/memory> | CodeBuddy's memory docs list CODEBUDDY.md and .codebuddy/rules, not .codebuddy/AGENTS.md (read on 2026-10-10). |
+| context | `<project>/.codebuddy/rules/egc-agents.md` | default | documented | <https://www.codebuddy.ai/docs/cli/memory> | CodeBuddy loads every .md file in .codebuddy/rules as project memory, alwaysApply true by default (read on 2026-10-11). The agent catalog lands there; planned when the file is absent, identical to the catalog, or recorded by EGC. The old .codebuddy/AGENTS.md, which CodeBuddy never read, is retired only while it holds the catalog EGC wrote. |
 | agents | `<project>/.codebuddy/agents/` | default | documented | <https://www.codebuddy.ai/docs/cli/sub-agents> |  |
 | commands | `<project>/.codebuddy/commands/` | default | documented | <https://www.codebuddy.ai/docs/cli/slash-commands> |  |
 | runtime | `<project>/.codebuddy/hooks/` | default | egc |  | EGC runtime: hook scripts the hook configuration of the tool points at. |
@@ -301,6 +301,12 @@ Status: **documented** paths are read by the tool per the linked docs; **egc** p
 | library | `~/.config/zed/commands/` | default | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
 | library | `~/.config/zed/rules/` | default | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
 | state | `~/.config/zed/egc/install-state.json` | default | egc |  | EGC runtime: the install state EGC writes to track the files it manages. |
+| library | `~/AppData/Roaming/Zed/.agents/` | win32 | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
+| context | `~/AppData/Roaming/Zed/AGENTS.md` | win32 | documented | <https://zed.dev/docs/ai/instructions> |  |
+| library | `~/AppData/Roaming/Zed/agents/` | win32 | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
+| library | `~/AppData/Roaming/Zed/commands/` | win32 | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
+| library | `~/AppData/Roaming/Zed/rules/` | win32 | egc |  | EGC library folder: a reference copy of the prompt library that the tool does not load on its own. |
+| state | `~/AppData/Roaming/Zed/egc/install-state.json` | win32 | egc |  | EGC runtime: the install state EGC writes to track the files it manages. |
 
 ## trae-project
 
